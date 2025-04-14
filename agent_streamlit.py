@@ -226,7 +226,7 @@ def main():
     # 3. Conditionally render the user manual
     if st.session_state.show_user_manual:
         # Load user manual content from an external Markdown file
-        manual_path = os.path.join('docs', 'des_agent_doc.md')
+        manual_path = os.path.join('docs', 'des_agent_doc_en.md')
         if os.path.exists(manual_path):
             with open(manual_path, "r", encoding="utf-8") as f:
                 manual_content = f.read()

@@ -17,6 +17,7 @@ from langchain_openai import ChatOpenAI
 import re
 import fuzzywuzzy.fuzz as fuzz
 from typing import List, Dict, Any
+import streamlit as st
 
 import pandas as pd
 import json
@@ -37,9 +38,9 @@ os.environ["LANGCHAIN_API_KEY"] = "lsv2_pt_78fe0a8537af4c3d943b1253fbc9b1f7_9d82
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_PROJECT"] = "KG Query Agent"
 
-NEO4J_URI = "neo4j+s://70d99939.databases.neo4j.io"
-NEO4J_USER = "neo4j"
-NEO4J_PASSWORD = "H3wGAoxB6YBnD3paWrcAnDDZAKFBT8hR3kDtAK7nZmE"
+NEO4J_URI = st.secrets['neo4j_credentials']['NEO4J_URI']
+NEO4J_USER = st.secrets['neo4j_credentials']['NEO4J_USER']
+NEO4J_PASSWORD = st.secrets['neo4j_credentials']['NEO4J_PASSWORD']
 
 BASE_URL = None
 # BASE_URL = "https://service-56tr1g58-1317694151.usw.apigw.tencentcs.com/v1"
