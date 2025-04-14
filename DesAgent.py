@@ -706,6 +706,10 @@ class DesAgent:
                     cypher_query = cypher_response["cypher_query"]
                     yield "**Generated Cypher Query**\n" + cypher_query + "\n\n"
                     new_cypher_query, top_matches = transform_cypher_query(cypher_query)
+
+                    # temporary fix for <= and >=, replace all ≥ ≤ with >= and <=
+                    new_cypher_query = new_cypher_query.replace("≥", ">=").replace("≤", "<=")
+
                     # Format query display to avoid markdown parsing issues
                     yield "Found substance name:"
                     if top_matches:
