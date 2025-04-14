@@ -70,7 +70,7 @@ CLAUSE_PATTERN = '|'.join([re.escape(keyword) for keyword in CYPHER_CLAUSE_KEYWO
 # end_time = time.time()
 # print(f"Time taken for imports: {end_time - start_time:.2f}s")
 
-string_list = json.load(open(r'D:\Users\YISHEN335\Documents\VScode\DES_Agent\indexing_substances\substance_string_list.json', 'r'))
+string_list = json.load(open('substance_string_list.json', 'r'))
 
 
 def levenshtein_search(query, threshold=80):
