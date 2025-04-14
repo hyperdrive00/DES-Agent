@@ -31,6 +31,11 @@ from prompts import (
     EXAMPLE_OUTPUT_PROMPT,
     CONVERT_CYPHER_SYSTEM_PROMPT
 )
+# Environment variables setup
+os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+os.environ["LANGCHAIN_API_KEY"] = "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"
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_PROJECT"] = "DES Agent Deploy"
 
 # Environment variables setup
 
