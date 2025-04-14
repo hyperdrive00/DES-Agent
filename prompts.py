@@ -24,7 +24,10 @@ Check the schema for allowed relationship types and properties. Only use relatio
 Step 4: Construct the Cypher Query
 Based on the analysis of the user's question and the schema, create the Cypher query. Ensure it reflects the user's needs—such as finding mixtures, substances, properties, or combinations thereof. The query should filter based on the given properties (like melting point, proportion, etc.) or any other requirements in the question.
 
-Step 5: Return the Output
+Step 5: Limit Results
+Always include a LIMIT 100 clause in your Cypher query to ensure results do not exceed 100 records, unless the query already includes a specific LIMIT clause (such as LIMIT 1 for finding a single best result).
+
+Step 6: Return the Output
 If a Cypher query is needed, return the Cypher query in JSON format. If no query is needed, simply return "no" in the same format.
 """
 
@@ -47,6 +50,7 @@ MATCH (m:Mixture)
 WHERE m.melting_point >= $minMP
   AND m.melting_point <= $maxMP
 RETURN m
+LIMIT 100
 
 Example 2:
 Question: 寻找包含 Glycerin，且 melting_point 在 [290, 350] K 范围内的配方
@@ -55,6 +59,7 @@ MATCH (s:Substance { pubchem_name: $substanceName })<-[:HAS_SUBSTANCE]-(m:Mixtur
 WHERE m.melting_point >= $minMP
   AND m.melting_point <= $maxMP
 RETURN m
+LIMIT 100
 
 Example 3:
 Question: 寻找包含 Sodium Chloride 和 Calcium Chloride，且 melting_point 在 [400, 600]，tpsa 在 [0, 100] 的配方
@@ -68,6 +73,7 @@ WHERE m.melting_point >= 400
   AND ALL(substance IN targetSubstances 
           WHERE EXISTS((m)-[:HAS_SUBSTANCE]->(:Substance {pubchem_name: substance})))
 RETURN m
+LIMIT 100
 
 Example 4:
 Question: 寻找 melting_point 在 [300, 400] K 范围内最低 melting point 的配方
@@ -85,6 +91,7 @@ Question: 查找所有曾研究过 Glycerin 这个物质的文章
 Cypher Query:
 MATCH (s:Substance { pubchem_name: $substanceName })<-[:HAS_SUBSTANCE]-(m:Mixture)-[:REPORTED_IN]->(a:Article)
 RETURN DISTINCT a
+LIMIT 100
 
 Example 6:
 Question: 数据库里 melting_point 最低的配方是哪一个？它包含哪些物质及对应配比？
@@ -142,7 +149,7 @@ Input:
 MATCH (m:Mixture)-[r:HAS_SUBSTANCE]->(s:Substance)
 RETURN m, s
 Output:
-{{"cypher_query": "MATCH p=(m:Mixture)-[r:HAS_SUBSTANCE]->(s:Substance) RETURN p"}}
+{{"cypher_query": "MATCH p=(m:Mixture)-[r:HAS_SUBSTANCE]->(s:Substance) RETURN p LIMIT 100"}}
 
 Example 2:
 Input:
@@ -151,14 +158,14 @@ MATCH (m)-[r2:HAS_SUBSTANCE]->(other:Substance)
 WHERE other.pubchem_name <> 'Urea'
 RETURN m, s, other
 Output:
-{{"cypher_query": "MATCH p1=(m:Mixture)-[r1:HAS_SUBSTANCE]->(s:Substance {{pubchem_name: 'Urea'}}) MATCH p2=(m)-[r2:HAS_SUBSTANCE]->(other:Substance) WHERE other.pubchem_name <> 'Urea' RETURN p1, p2"}}
+{{"cypher_query": "MATCH p1=(m:Mixture)-[r1:HAS_SUBSTANCE]->(s:Substance {{pubchem_name: 'Urea'}}) MATCH p2=(m)-[r2:HAS_SUBSTANCE]->(other:Substance) WHERE other.pubchem_name <> 'Urea' RETURN p1, p2 LIMIT 100"}}
 
 Example 3:
 Input:
 MATCH (m:Mixture)-[r1:HAS_SUBSTANCE]->(s:Substance {{pubchem_name: 'Urea'}})-[r2:HAS_SUBSTANCE]->(other:Substance)
 RETURN m, s, other
 Output:
-{{"cypher_query": "MATCH p1=(m:Mixture)-[r1:HAS_SUBSTANCE]->(s:Substance {{pubchem_name: 'Urea'}}) MATCH p2=(m)-[r2:HAS_SUBSTANCE]->(other:Substance) RETURN p1, p2"}}
+{{"cypher_query": "MATCH p1=(m:Mixture)-[r1:HAS_SUBSTANCE]->(s:Substance {{pubchem_name: 'Urea'}}) MATCH p2=(m)-[r2:HAS_SUBSTANCE]->(other:Substance) RETURN p1, p2 LIMIT 100"}}
 
 Now, you will be given a Cypher query. Please convert it to focus on showing the graph paths.
 """

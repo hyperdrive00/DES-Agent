@@ -237,8 +237,8 @@ def main():
         "What is the DES with the lowest melting point in the database and what are its components and ratios?",
         "Find formulations with melting point in the range [300, 400] K",
         "Find formulations containing Glycerin with melting point in the range [290, 350] K",
-        "Find formulations containing Sodium Chloride and Calcium Chloride with melting point in range [400, 600] K",
-        "What is the formulation with the lowest melting point in the database?",
+#        "Find formulations containing Sodium Chloride and Calcium Chloride with melting point in range [400, 600] K",
+        # "What is the formulation with the lowest melting point in the database?",
         "Which articles have researched Glycerin?",
         "In the binary system of Sodium Chloride and Calcium Chloride, which formulation has the lowest melting point?"
     ]
