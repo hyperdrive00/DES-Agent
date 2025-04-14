@@ -17,7 +17,6 @@ from langchain_openai import ChatOpenAI
 import re
 import fuzzywuzzy.fuzz as fuzz
 from typing import List, Dict, Any
-import streamlit as st
 
 import pandas as pd
 import json
@@ -38,9 +37,9 @@ os.environ["LANGCHAIN_API_KEY"] = "lsv2_pt_78fe0a8537af4c3d943b1253fbc9b1f7_9d82
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_PROJECT"] = "KG Query Agent"
 
-NEO4J_URI = st.secrets['neo4j_credentials']['NEO4J_URI']
-NEO4J_USER = st.secrets['neo4j_credentials']['NEO4J_USER']
-NEO4J_PASSWORD = st.secrets['neo4j_credentials']['NEO4J_PASSWORD']
+NEO4J_URI = "neo4j+s://70d99939.databases.neo4j.io"
+NEO4J_USER = "neo4j"
+NEO4J_PASSWORD = "H3wGAoxB6YBnD3paWrcAnDDZAKFBT8hR3kDtAK7nZmE"
 
 BASE_URL = None
 # BASE_URL = "https://service-56tr1g58-1317694151.usw.apigw.tencentcs.com/v1"
@@ -70,7 +69,7 @@ CLAUSE_PATTERN = '|'.join([re.escape(keyword) for keyword in CYPHER_CLAUSE_KEYWO
 # end_time = time.time()
 # print(f"Time taken for imports: {end_time - start_time:.2f}s")
 
-string_list = json.load(open('substance_string_list.json', 'r'))
+string_list = json.load(open(r'D:\Users\YISHEN335\Documents\VScode\DES_Agent\indexing_substances\substance_string_list.json', 'r'))
 
 
 def levenshtein_search(query, threshold=80):
@@ -100,10 +99,18 @@ def levenshtein_search(query, threshold=80):
         if match['pubchem_cid'] not in unique_ids and len(unique_ids) < 5:
             unique_ids.add(match['pubchem_cid'])
             unique_matches.append(match)
-
-    cids = [match['pubchem_cid'] for match in unique_matches if match['similarity'] == top_score]
     
-    return cids
+    top_matches = [match for match in unique_matches if match['similarity'] == top_score]
+            
+
+    # cids = [match['pubchem_cid'] for match in unique_matches if match['similarity'] == top_score]
+    
+    # # Yield information about all the top-scoring matches being returned
+    # for match in unique_matches:
+    #     if match['similarity'] == top_score:
+    #         yield(f"CID: {match['pubchem_cid']}, String: {match['string']}, Score: {match['similarity']}%")
+    
+    return top_matches
 
 # --- Updated Transformation Function ----------------------------------
 def transform_cypher_query(query_text):
@@ -123,7 +130,13 @@ def transform_cypher_query(query_text):
          * In map filters, {pubchem_name: substance} becomes {pubchem_cid: substance}
       6. Extra conditions (from node maps that couldn't be inlined) are merged into an existing WHERE clause,
          using AND.
+      
+    Returns:
+      A tuple of (transformed_query, top_matches) where top_matches is a list of all substance matches found
     """
+    # Dictionary to store all top matches found during transformation
+    all_top_matches = []
+    
     # --- Extra Step A: Process WITH Clauses that assign a literal list.
     # For example: WITH ["Sodium Chloride", "Calcium Chloride"] AS targetSubstances
     # We'll replace it with a list of corresponding CIDs.
@@ -135,8 +148,10 @@ def transform_cypher_query(query_text):
         names = [m[1] for m in re.findall(r'(["\'`])([^"\'`]+)\1', list_contents)]
         cid_set = set()
         for name in names:
-            for cid in levenshtein_search(name):
-                cid_set.add(cid)
+            top_matches = levenshtein_search(name)
+            all_top_matches.extend(top_matches)
+            for match in top_matches:
+                cid_set.add(match['pubchem_cid'])
         cid_list = sorted(cid_set)
         return f'WITH {cid_list} AS {var_name}'
     query_text = re.sub(with_list_pattern, replace_with_list, query_text)
@@ -149,10 +164,12 @@ def transform_cypher_query(query_text):
     def replace_node_map(match):
         alias = match.group(1)
         name = match.group(3)
-        cids = levenshtein_search(name)
-        if len(cids) == 1:
-            return f'{alias}:Substance{{pubchem_cid: {cids[0]}}}'
+        top_matches = levenshtein_search(name)
+        all_top_matches.extend(top_matches)
+        if len(top_matches) == 1:
+            return f'{alias}:Substance{{pubchem_cid: {top_matches[0]["pubchem_cid"]}}}'
         else:
+            cids = [match['pubchem_cid'] for match in top_matches]
             extra_conditions[alias] = f'{alias}.pubchem_cid IN [{", ".join(str(cid) for cid in cids)}]'
             return f'{alias}:Substance'
     query_text = re.sub(node_map_pattern, replace_node_map, query_text)
@@ -162,7 +179,9 @@ def transform_cypher_query(query_text):
     def replace_eq(match):
         prefix = match.group(1)
         name = match.group(3)
-        cids = levenshtein_search(name)
+        top_matches = levenshtein_search(name)
+        all_top_matches.extend(top_matches)
+        cids = [match['pubchem_cid'] for match in top_matches]
         return f'{prefix}pubchem_cid IN [{", ".join(str(cid) for cid in cids)}]'
     query_text = re.sub(eq_pattern, replace_eq, query_text)
     
@@ -171,7 +190,9 @@ def transform_cypher_query(query_text):
     def replace_neq(match):
         prefix = match.group(1)
         name = match.group(3)
-        cids = levenshtein_search(name)
+        top_matches = levenshtein_search(name)
+        all_top_matches.extend(top_matches)
+        cids = [match['pubchem_cid'] for match in top_matches]
         return f'NOT {prefix}pubchem_cid IN [{", ".join(str(cid) for cid in cids)}]'
     query_text = re.sub(neq_pattern, replace_neq, query_text)
     
@@ -182,8 +203,10 @@ def transform_cypher_query(query_text):
         names = [n.strip().strip('"').strip("'").strip("`") for n in content.split(",")]
         cids_set = set()
         for name in names:
-            for cid in levenshtein_search(name):
-                cids_set.add(cid)
+            top_matches = levenshtein_search(name)
+            all_top_matches.extend(top_matches)
+            for match in top_matches:
+                cids_set.add(match['pubchem_cid'])
         cids_list = sorted(cids_set)
         return f'pubchem_cid IN [{", ".join(str(cid) for cid in cids_list)}]'
     query_text = re.sub(in_pattern, replace_in, query_text)
@@ -212,7 +235,7 @@ def transform_cypher_query(query_text):
     map_var_pattern = r'\{\s*pubchem_name\s*:\s*([a-zA-Z_]\w*)\s*\}'
     query_text = re.sub(map_var_pattern, r'{pubchem_cid: \1}', query_text)
     
-    return query_text
+    return query_text, all_top_matches
 
 
 class DesAgent:
@@ -679,9 +702,28 @@ class DesAgent:
                     yield "**Thought Process**\n" + thought_process + "\n\n"
                     self.CHAT_HISTORY.add_ai_message("**Thought Process**\n" + thought_process + "\n\n")
                     cypher_query = cypher_response["cypher_query"]
-                    new_cypher_query = transform_cypher_query(cypher_query)
+                    yield "**Generated Cypher Query**\n" + cypher_query + "\n\n"
+                    new_cypher_query, top_matches = transform_cypher_query(cypher_query)
                     # Format query display to avoid markdown parsing issues
-                    yield "**Generated Cypher Query**\n" + cypher_query + "\n\n**New Cypher Query**\n" + new_cypher_query + "\n\n"
+                    yield "Found substance name:"
+                    if top_matches:
+                        # Display unique top matches by pubchem_cid to avoid duplicates
+                        unique_matches = {}
+                        for match in top_matches:
+                            cid = match['pubchem_cid']
+                            if cid not in unique_matches or match['similarity'] > unique_matches[cid]['similarity']:
+                                unique_matches[cid] = match
+                        
+                        # Convert to list and sort by similarity (descending)
+                        unique_match_list = list(unique_matches.values())
+                        unique_match_list.sort(key=lambda x: x['similarity'], reverse=True)
+                        
+                        # Display the matches
+                        for match in unique_match_list:
+                            yield f"\n- {match['string']} (CID: {match['pubchem_cid']}, Similarity: {match['similarity']}%)"
+                    else:
+                        yield "\nNo substance matches found."
+                    yield "\n\n**New Cypher Query**\n" + new_cypher_query + "\n\n"
                     result = self.query_graph_with_retry(new_cypher_query, retry_count=3, question=question,result_type="md")
                     if result is None:
                         msg = "Error: No results found. Please try another query."
@@ -753,7 +795,9 @@ class DesAgent:
 
             # Visualize the graph
             if use_cypher == "yes" and result:
-                path_result,path_query = self.cypher_query_to_path(cypher_query, question,result)
+                # Apply the transform_cypher_query function also to the visualization
+                visualization_cypher, _ = transform_cypher_query(cypher_query)
+                path_result, path_query = self.cypher_query_to_path(visualization_cypher, question, result)
                 # print(f"cypher_query: {path_query}")
                 yield "\n**Visualize Query**\n" + path_query + "\n\n"
                 path = self.parse_query_paths(path_query)

@@ -214,15 +214,50 @@ def main():
     if "show_user_manual" not in st.session_state:
         st.session_state.show_user_manual = False
 
-    # 2. Create two buttons for toggling user manual visibility
-    col_show, col_hide = st.columns(2)
-    with col_show:
-        if st.button("Show Manual"):
-            st.session_state.show_user_manual = True
-    with col_hide:
-        if st.button("Hide Manual"):
-            st.session_state.show_user_manual = False
-
+    # ---- SIDEBAR SECTION ----
+    # Move manual controls to sidebar
+    st.sidebar.title("Options")
+    
+    # Add manual controls to sidebar
+    if st.sidebar.button("Show Manual"):
+        st.session_state.show_user_manual = True
+    if st.sidebar.button("Hide Manual"):
+        st.session_state.show_user_manual = False
+    
+    # Add predefined questions to sidebar
+    st.sidebar.subheader("Predefined Questions")
+    predefined_questions = [
+        "What is a deep eutectic solvent?",
+        "How are deep eutectic solvents formed?",
+        "What are the applications of deep eutectic solvents?",
+        "Can you give an example of a deep eutectic solvent?",
+        "What are the properties of deep eutectic solvents?",
+        "Which substances can form a DES together with urea?",
+        "Which substances can form DES with Choline Chloride?",
+        "What is the DES with the lowest melting point in the database and what are its components and ratios?",
+        "Find formulations with melting point in the range [300, 400] K",
+        "Find formulations containing Glycerin with melting point in the range [290, 350] K",
+        "Find formulations containing Sodium Chloride and Calcium Chloride with melting point in range [400, 600] K",
+        "What is the formulation with the lowest melting point in the database?",
+        "Which articles have researched Glycerin?",
+        "In the binary system of Sodium Chloride and Calcium Chloride, which formulation has the lowest melting point?"
+    ]
+    
+    # Initialize the predefined question value in session state if not exists
+    if "predefined_question" not in st.session_state:
+        st.session_state.predefined_question = ""
+    
+    if "should_process_predefined" not in st.session_state:
+        st.session_state.should_process_predefined = False
+    
+    # Predefined question buttons in sidebar
+    for question in predefined_questions:
+        if st.sidebar.button(question, key=f"predef_{question}"):
+            st.session_state.predefined_question = question
+            st.session_state.should_process_predefined = True
+            st.rerun()
+        
+    # ----- MAIN SECTION -----
     # 3. Conditionally render the user manual
     if st.session_state.show_user_manual:
         # Load user manual content from an external Markdown file
@@ -272,26 +307,33 @@ def main():
             # This prevents potential markdown parsing issues
 
     # --- 3. Chat input box at the bottom for the user to ask a question. ---
-    user_input = st.chat_input("Ask the DESAgent something...")
-    if user_input:
-        # (a) Log the user's message to the session
-        st.session_state.messages.append({"role": "user", "content": user_input})
+    # Regular chat input
+    user_input = st.chat_input("Ask the DESAgent something...", key="chat_input")
+    
+    # Process predefined question if selected
+    if st.session_state.should_process_predefined and st.session_state.predefined_question:
+        input_to_process = st.session_state.predefined_question
+        st.session_state.predefined_question = ""
+        st.session_state.should_process_predefined = False
+        
+        # Log the user's message to the session
+        st.session_state.messages.append({"role": "user", "content": input_to_process})
 
-        # --- IMMEDIATE LOGGING: Save user input to file ---
+        # Save user input to file
         user_log_path = f"logs/{st.session_state.session_id}.log"
         os.makedirs("logs", exist_ok=True)
         with open(user_log_path, "a", encoding="utf-8") as f:
-            f.write(f"[USER] {user_input}\n")
+            f.write(f"[USER] {input_to_process}\n")
 
         # Show it in the UI
         with st.chat_message("user"):
-            safe_markdown(user_input)
+            safe_markdown(input_to_process)
 
-        # (b) Stream the assistant's response
+        # Stream the assistant's response
         response_chunks = []
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
-            for chunk in st.session_state.agent.task_execution(user_input):
+            for chunk in st.session_state.agent.task_execution(input_to_process):
                 response_chunks.append(chunk)
                 combined_text = "".join(response_chunks)
                 try:
@@ -302,15 +344,15 @@ def main():
                     message_placeholder.text(combined_text)
                     print(f"Streaming markdown error: {e}")
 
-        # (c) Finalize the assistant response
+        # Finalize the assistant response
         final_response = "".join(response_chunks)
         processed_result = st.session_state.agent.get_latest_processed_result()
 
-        # --- IMMEDIATE LOGGING: Save assistant response to file ---
+        # Save assistant response to file
         with open(user_log_path, "a", encoding="utf-8") as f:
             f.write(f"[ASSISTANT] \n{final_response}\n\n")
 
-        # (d) Store assistant message + optional graph
+        # Store assistant message + optional graph
         if processed_result:
             st.session_state.messages.append({
                 "role": "assistant",
@@ -323,7 +365,7 @@ def main():
                 "content": final_response,
             })
 
-        # (e) Render "Show Graph / Hide Graph" if needed, for the newly generated message
+        # Render "Show Graph / Hide Graph" if needed, for the newly generated message
         if st.session_state.messages[-1]["role"] == "assistant" and "graph" in st.session_state.messages[-1]:
             idx = len(st.session_state.messages) - 1
             col1, col2 = st.columns(2)
@@ -341,7 +383,79 @@ def main():
             else:
                 # Use st.text instead of st.markdown to avoid potential parsing issues
                 st.text("Graph is available but hidden. Click 'Show Graph' to view.")
-        # No else clause here - don't display "No graph available" messages
+    
+    # If there's input from the user
+    elif user_input:
+        # Process user's own input
+        input_to_process = user_input
+        
+        # Log the user's message to the session
+        st.session_state.messages.append({"role": "user", "content": input_to_process})
+
+        # Save user input to file
+        user_log_path = f"logs/{st.session_state.session_id}.log"
+        os.makedirs("logs", exist_ok=True)
+        with open(user_log_path, "a", encoding="utf-8") as f:
+            f.write(f"[USER] {input_to_process}\n")
+
+        # Show it in the UI
+        with st.chat_message("user"):
+            safe_markdown(input_to_process)
+
+        # Stream the assistant's response
+        response_chunks = []
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
+            for chunk in st.session_state.agent.task_execution(input_to_process):
+                response_chunks.append(chunk)
+                combined_text = "".join(response_chunks)
+                try:
+                    # Try to render with markdown
+                    message_placeholder.markdown(sanitize_markdown(combined_text))
+                except Exception as e:
+                    # Fallback to plain text if markdown fails
+                    message_placeholder.text(combined_text)
+                    print(f"Streaming markdown error: {e}")
+
+        # Finalize the assistant response
+        final_response = "".join(response_chunks)
+        processed_result = st.session_state.agent.get_latest_processed_result()
+
+        # Save assistant response to file
+        with open(user_log_path, "a", encoding="utf-8") as f:
+            f.write(f"[ASSISTANT] \n{final_response}\n\n")
+
+        # Store assistant message + optional graph
+        if processed_result:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": final_response,
+                "graph": processed_result
+            })
+        else:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": final_response,
+            })
+
+        # Render "Show Graph / Hide Graph" if needed, for the newly generated message
+        if st.session_state.messages[-1]["role"] == "assistant" and "graph" in st.session_state.messages[-1]:
+            idx = len(st.session_state.messages) - 1
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("Show Graph", key=f"show_graph_{idx}"):
+                    st.session_state.graph_visibility[idx] = True
+            with col2:
+                if st.button("Hide Graph", key=f"hide_graph_{idx}"):
+                    st.session_state.graph_visibility[idx] = False
+
+            if st.session_state.graph_visibility.get(idx, False):
+                html_content = build_graph_html(processed_result)
+                components.html(html_content, height=600, width=800, scrolling=True)
+            else:
+                # Use st.text instead of st.markdown to avoid potential parsing issues
+                st.text("Graph is available but hidden. Click 'Show Graph' to view.")
 
     # Note: The graph visualization is handled in the messages loop above.
     
