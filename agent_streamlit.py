@@ -28,37 +28,52 @@ def sanitize_markdown(content):
     """
     if content is None:
         return ""
-    
+
     # Ensure content is a string
     content = str(content)
-    
-    # Replace problematic markdown directives
-    # Remove any directive attributes syntax that might cause issues
-    content = re.sub(r'::: \{.*?\}', '', content)
-    content = re.sub(r'\{#.*?\}', '', content)
-    content = re.sub(r'\{.*?\}', '', content)
-    
-    # Escape any HTML tags that may have snuck in
-    content = content.replace('<', '&lt;').replace('>', '&gt;')
-    
-    return content
+
+    # Split content into code blocks and regular text using regex
+    code_pattern = r'(```(?:cypher|sql|python|json|)?\s*[\s\S]*?```|~~~\s*[\s\S]*?~~~)'
+    parts = re.split(code_pattern, content)
+
+    result_parts = []
+    for i, part in enumerate(parts):
+        is_code_block = i % 2 == 1  # Code blocks are at odd indices due to re.split capturing groups
+        if is_code_block:
+            # Preserve code blocks entirely
+            result_parts.append(part)
+        else:
+            # Check if this part looks like a Cypher query
+            if re.search(r'^\s*(MATCH|RETURN|WHERE|CREATE|DELETE|MERGE)\b', part, re.IGNORECASE | re.MULTILINE):
+                # Wrap standalone Cypher queries in a code block
+                wrapped_part = f"```cypher\n{part.strip()}\n```"
+                result_parts.append(wrapped_part)
+            else:
+                # Sanitize non-code, non-Cypher content
+                # Remove lines starting with ':::' (directive syntax)
+                cleaned = re.sub(r'^:::.+', '', part, flags=re.MULTILINE)
+                # Remove any remaining ':::' markers
+                cleaned = cleaned.replace(':::', '')
+                # Remove heading attributes like '{#id}'
+                cleaned = re.sub(r'\{#.*?\}', '', cleaned)
+                # Escape special markdown characters
+                cleaned = cleaned.replace('\\', '\\\\')
+                markdown_special_chars = ['{', '}', '[', ']', '(', ')', '#', '+', '-', '.', '!', '|', '*', '_', '`', '>', '<']
+                for char in markdown_special_chars:
+                    cleaned = cleaned.replace(char, '\\' + char)
+                result_parts.append(cleaned)
+
+    # Recombine all parts into a single string
+    return ''.join(result_parts)
 
 def safe_markdown(content):
-    """
-    Safely render markdown content with error handling.
-    
-    Args:
-        content (str): The markdown content to render
-    """
     try:
         sanitized_content = sanitize_markdown(content)
+        print(f"Sanitized content:\n{sanitized_content}")  # Debug output
         st.markdown(sanitized_content)
     except Exception as e:
-        st.error(f"Error rendering markdown. Displaying as plain text instead.")
+        st.error(f"Error rendering markdown: {e}")
         st.text(content)
-        # Log the error for debugging
-        print(f"Markdown rendering error: {e}")
-        print(traceback.format_exc())
 
 def build_graph_html(processed_records: List[Dict[str, List[Dict[str, Any]]]]) -> str:
     """
@@ -189,8 +204,50 @@ def build_graph_html(processed_records: List[Dict[str, List[Dict[str, Any]]]]) -
 
 
 def main():
+
+    md = MarkdownIt()
     st.title("DES Agent")
     st.subheader("Interactive Deep Eutectic Solvent Question Answering Chatbot")
+
+    # Add custom CSS for text wrapping
+    st.markdown("""
+    <style>
+    .element-container div.markdown-text-container p {
+        white-space: normal !important;
+        word-wrap: break-word !important;
+        overflow-wrap: break-word !important;
+    }
+    .element-container div.markdown-text-container code {
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+        overflow-wrap: break-word !important;
+    }
+    .stMarkdown {
+        word-wrap: break-word !important;
+        white-space: normal !important;
+        overflow-wrap: break-word !important;
+    }
+    /* Additional selectors to catch all markdown elements */
+    .streamlit-expanderContent, .stMarkdown div, .streamlit-expanderContent div {
+        white-space: normal !important;
+        word-wrap: break-word !important;
+        overflow-wrap: break-word !important;
+        max-width: 100% !important;
+    }
+    /* Force all text to be wrappable */
+    p, span, div, li, pre, code {
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+        overflow-wrap: break-word !important;
+        word-break: break-word !important;
+    }
+    /* Handle overflow for all containers */
+    .main .block-container, .stTextInput, .stMarkdown, .css-1kyxreq {
+        max-width: 100% !important;
+        overflow-x: auto !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     # Make sure logs folder exists
     os.makedirs("logs", exist_ok=True)
@@ -346,7 +403,6 @@ def main():
                             "role": "assistant",
                             "content": current_message
                         })
-                        current_message = ""
                     # Save and display the DataFrame
                     st.session_state.messages.append({
                         "role": "assistant",
@@ -358,12 +414,24 @@ def main():
                     # Accumulate text chunks
                     current_message += str(chunk)
                     try:
-                        message_placeholder.markdown(sanitize_markdown(current_message))
+                        # Use the sanitize_markdown function first
+                        sanitized = sanitize_markdown(current_message)
+                        message_placeholder.markdown(sanitized)
                     except Exception as e:
-                        message_placeholder.text(current_message)
+                        try:
+                            # First fallback: Try plain text with minimal formatting
+                            print(f"Markdown rendering error: {e}")
+                            # Strip out all potential problematic markdown syntax
+                            strict_content = re.sub(r'[^a-zA-Z0-9\s\.\,\;\:\!\?\-\_\*\#\(\)\[\]\>\~\`\=\+\/\\]', '', current_message)
+                            # Force plain text display
+                            message_placeholder.text(current_message)
+                        except Exception as e2:
+                            # Last resort: Just display raw text
+                            print(f"Second markdown rendering error: {e2}")
+                            message_placeholder.code(current_message)
                     response_chunks.append(chunk)
 
-            # Save any remaining text as a message
+            # Save any remaining text as a message AFTER the loop completes
             if current_message:
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -437,42 +505,41 @@ def main():
                     # Accumulate text chunks
                     current_message += str(chunk)
                     try:
-                        message_placeholder.markdown(sanitize_markdown(current_message))
+                        # Use the sanitize_markdown function f  irst
+                        sanitized = sanitize_markdown(current_message)
+                        message_placeholder.markdown(sanitized)
                     except Exception as e:
-                        message_placeholder.text(current_message)
+                        try:
+                            # First fallback: Try plain text with minimal formatting
+                            print(f"Markdown rendering error: {e}")
+                            # Strip out all potential problematic markdown syntax
+                            strict_content = re.sub(r'[^a-zA-Z0-9\s\.\,\;\:\!\?\-\_\*\#\(\)\[\]\>\~\`\=\+\/\\]', '', current_message)
+                            # Force plain text display
+                            message_placeholder.text(current_message)
+                        except Exception as e2:
+                            # Last resort: Just display raw text
+                            print(f"Second markdown rendering error: {e2}")
+                            message_placeholder.code(current_message)
                     response_chunks.append(chunk)
 
-                # Save any remaining text as a message
-                if current_message:
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": current_message
-                    })
+            # Save any remaining text as a message AFTER the loop completes
+            if current_message:
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": current_message
+                })
 
         # Handle graph visualization if present
         processed_result = st.session_state.agent.get_latest_processed_result()
-        if processed_result:
-            st.session_state.messages[-1]["graph"] = processed_result
-
-        # Finalize the assistant response
+        
+        # Save any final response chunks to file
         final_response = "".join(response_chunks)
-
-        # Save assistant response to file
         with open(user_log_path, "a", encoding="utf-8") as f:
             f.write(f"[ASSISTANT] \n{final_response}\n\n")
-
-        # Store assistant message + optional graph
-        if processed_result:
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": final_response,
-                "graph": processed_result
-            })
-        else:
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": final_response,
-            })
+        
+        # Update the last message with graph if available
+        if processed_result and st.session_state.messages and st.session_state.messages[-1]["role"] == "assistant":
+            st.session_state.messages[-1]["graph"] = processed_result
 
         # Render "Show Graph / Hide Graph" if needed, for the newly generated message
         if st.session_state.messages[-1]["role"] == "assistant" and "graph" in st.session_state.messages[-1]:

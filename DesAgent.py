@@ -37,7 +37,6 @@ os.environ["LANGCHAIN_API_KEY"] = "lsv2_pt_78fe0a8537af4c3d943b1253fbc9b1f7_9d82
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_PROJECT"] = "DES Agent Deploy"
 
-# Environment variables setup
 
 NEO4J_URI = st.secrets['neo4j_credentials']['NEO4J_URI']
 NEO4J_USER = st.secrets['neo4j_credentials']['NEO4J_USER']
@@ -721,24 +720,22 @@ class DesAgent:
                 if "cypher_query" in cypher_response:
                     thought_process = cypher_response["thought_process"]
                     # Format thought process to avoid markdown parsing issues
-                    yield "[Thought Process]\n" + thought_process + "\n\n"
-                    self.CHAT_HISTORY.add_ai_message("[Thought Process]\n" + thought_process + "\n\n")
+                    msg = f"[Thought Process]\n{thought_process}\n\n"
+                    yield msg
+                    self.CHAT_HISTORY.add_ai_message(msg)
                     cypher_query = cypher_response["cypher_query"]
+                    # cypher_query = cypher_query.replace('{', '{{').replace('}', '}}')
 
-                    yield "[Generated Cypher Query]\n" + cypher_query + "\n\n"
-                    self.CHAT_HISTORY.add_ai_message("[Generated Cypher Query]\n" + cypher_query + "\n\n")
+                    msg = f"[Generated Cypher Query]\n{cypher_query}\n\n"
+                    yield msg
+                    self.CHAT_HISTORY.add_ai_message(msg)
                     self.log_message("ai", f"Generated Cypher Query: {cypher_query}")
+
+
                     new_cypher_query, top_matches = transform_cypher_query(cypher_query)
-
-                    yield "\n\n[New Cypher Query]\n" + new_cypher_query + "\n\n"
-                    self.log_message("ai", f"New Cypher Query: {new_cypher_query}")
-                    self.CHAT_HISTORY.add_ai_message(f"New Cypher Query: {new_cypher_query}")
-
-                    # temporary fix for <= and >=, replace all ≥ ≤ with >= and <=
-                    new_cypher_query = new_cypher_query.replace("≥", ">=").replace("≤", "<=")
+                    # new_cypher_query = new_cypher_query.replace('{', '{{').replace('}', '}}')
 
                     # Format query display to avoid markdown parsing issues
-                    
                     if top_matches:
                         # Display unique top matches by pubchem_cid to avoid duplicates
                         unique_matches = {}
@@ -753,15 +750,22 @@ class DesAgent:
                         
                         # Display the matches
                         if len(unique_match_list) > 0:
-                            yield "Found substance name:"
+                            yield f"[Found substance name]"
                             for match in unique_match_list:
                                 yield f"\n- {match['string']} (CID: {match['pubchem_cid']}, Similarity: {match['similarity']}%)"
                             self.CHAT_HISTORY.add_ai_message(f"Found substance name:\n- {match['string']} (CID: {match['pubchem_cid']}, Similarity: {match['similarity']}%)")
                             self.log_message("ai", f"Found substance name:\n- {match['string']} (CID: {match['pubchem_cid']}, Similarity: {match['similarity']}%)")
                     else:
-                        yield "\nNo substance matches found."
-                        self.CHAT_HISTORY.add_ai_message("\nNo substance matches found.")
-                        self.log_message("ai", "\nNo substance matches found.")
+                        yield f"[No substance matches found]\n"
+                        self.CHAT_HISTORY.add_ai_message(f"[No substance matches found]\n")
+                        self.log_message("ai", f"[No substance matches found]\n")
+
+                    msg = f"\n\n[New Cypher Query]\n{new_cypher_query}\n\n"
+                    yield msg
+                    self.log_message("ai", f"New Cypher Query: {new_cypher_query}")
+                    self.CHAT_HISTORY.add_ai_message(msg)
+                    # temporary fix for <= and >=, replace all ≥ ≤ with >= and <=
+                    # new_cypher_query = new_cypher_query.replace("≥", ">=").replace("≤", "<=")
                     
                     result = self.query_graph_with_retry(new_cypher_query, retry_count=3, question=question,result_type="df")
                     if result is None:
@@ -774,9 +778,7 @@ class DesAgent:
                         msg = f"[Results found]\n{result_summary}"
                         self.log_message("ai", msg)
                         self.CHAT_HISTORY.add_ai_message(msg)
-                        yield f"[Results found]\n"
                         yield result
-                        yield "\n\n"
                 else:
                     msg = f"Error: No cypher query found in the response.\n{cypher_response}"
                     self.log_message("ai", msg)
@@ -789,7 +791,7 @@ class DesAgent:
                 self.CHAT_HISTORY.add_ai_message(f"[Thought Process]\n{thought_process}\n\n")
                 self.log_message("ai", f"Thought Process: {thought_process}")
                 result = None
-                yield "No cypher query result needed, just answer directly.\n\n"
+                yield f"No cypher query result needed, just answer directly.\n\n"
                 self.CHAT_HISTORY.add_ai_message("No cypher query result needed, just answer directly.")
                 self.log_message("ai", "No cypher query result needed, just answer directly.")
 
