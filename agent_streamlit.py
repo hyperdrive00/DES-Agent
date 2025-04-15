@@ -7,7 +7,7 @@ import random
 from datetime import datetime
 from pyvis.network import Network
 import streamlit.components.v1 as components
-
+from markdown_it import MarkdownIt
 # Import your DesAgent from DesAgent.py
 from DesAgent import DesAgent
 
@@ -16,13 +16,17 @@ import pandas as pd
 from typing import List, Dict, Any
 import traceback
 
+
+
 def sanitize_markdown(content):
     """
     Sanitize content for safe markdown rendering in Streamlit.
-    
+    Preserves code blocks and Cypher queries with curly braces while
+    removing or escaping problematic markdown syntax elsewhere.
+
     Args:
         content (str): The markdown content to sanitize
-        
+
     Returns:
         str: Sanitized markdown content
     """
