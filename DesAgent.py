@@ -73,7 +73,6 @@ CLAUSE_PATTERN = '|'.join([re.escape(keyword) for keyword in CYPHER_CLAUSE_KEYWO
 
 string_list = json.load(open('substance_string_list.json', 'r'))
 
-
 def levenshtein_search(query, threshold=80):
     query_lower = query.lower()
     matches = []
@@ -419,14 +418,16 @@ class DesAgent:
     
     def convert_query_result(self, result, result_type="json"):
         """
-        Convert the query result to a pandas DataFrame.
+        Convert the query result to a pandas DataFrame or markdown.
         """
         if result_type == "json":
             return result
-            # good_json_string = repair_json(str(result))
-            # return json.loads(good_json_string)
+        elif result_type == "df":
+            return pd.json_normalize(result)
         elif result_type == "md":
-            return pd.DataFrame(result).to_markdown(index=False)
+            df = pd.json_normalize(result)
+            markdown_table = df.to_markdown(index=False)
+            return markdown_table
 
     def query_graph_with_retry(self, cypher_query, retry_count=3, question=None,result_type="json"):
         """
@@ -458,6 +459,23 @@ class DesAgent:
                 if i == retry_count - 1:
                     return None
         return None
+    
+    def summarize_dataframe(self, result: pd.DataFrame)->str:
+        """
+        Summarize the result of a Cypher query.
+        """
+        if isinstance(result, pd.DataFrame):
+            # analyze the size, column names, data type of each column, randomly sample 10 rows
+            summary = f"Size: {result.shape}\n"
+            summary += f"Columns: {result.columns.tolist()}\n"
+            summary += f"Data types: {result.dtypes.to_dict()}\n"
+            # Handle case where dataframe has fewer than 10 rows
+            sample_size = min(10, len(result))
+            summary += f"Sample rows: {result.sample(sample_size).to_markdown() if sample_size > 0 else 'No rows available'}\n"
+            return summary
+        else:
+            return str(result)[:20000] # limit the length of the result to 20000 characters
+
     
     def cypher_query_to_path(self, cypher_query,result,question):
         """
@@ -649,7 +667,7 @@ class DesAgent:
         return processed
 
 
-    def create_final_result_prompt_template(self, use_cypher, results):
+    def create_final_result_prompt_template(self, use_cypher, result):
         """
         Create the final prompt template based on query results.
 
@@ -662,11 +680,11 @@ class DesAgent:
         """
         template_parts = []
 
-        if use_cypher == "yes" and results:
-            template_parts.append("Cypher query result: {results}")
+        if use_cypher == "yes" and result:
+            template_parts.append("Cypher query result_summary: {result_summary}, this is the summary of the result, the full table is shown to the user.")
         elif use_cypher == "no":
             template_parts.append("No cypher query result needed, answer the question directly.")
-        elif use_cypher == "yes" and results is None:
+        elif use_cypher == "yes" and result is None:
             template_parts.append("No results found, please try with another cypher query.")
         else:
             template_parts.append("There is an error in the cypher query.")
@@ -684,6 +702,8 @@ class DesAgent:
             str: Responses or intermediate steps.
         """
         try:
+            result_summary = None
+            result = None
             # Log the user's message
             self.log_message("user", question)
             self.CHAT_HISTORY.add_user_message(question)
@@ -701,17 +721,24 @@ class DesAgent:
                 if "cypher_query" in cypher_response:
                     thought_process = cypher_response["thought_process"]
                     # Format thought process to avoid markdown parsing issues
-                    yield "**Thought Process**\n" + thought_process + "\n\n"
-                    self.CHAT_HISTORY.add_ai_message("**Thought Process**\n" + thought_process + "\n\n")
+                    yield "[Thought Process]\n" + thought_process + "\n\n"
+                    self.CHAT_HISTORY.add_ai_message("[Thought Process]\n" + thought_process + "\n\n")
                     cypher_query = cypher_response["cypher_query"]
-                    yield "**Generated Cypher Query**\n" + cypher_query + "\n\n"
+
+                    yield "[Generated Cypher Query]\n" + cypher_query + "\n\n"
+                    self.CHAT_HISTORY.add_ai_message("[Generated Cypher Query]\n" + cypher_query + "\n\n")
+                    self.log_message("ai", f"Generated Cypher Query: {cypher_query}")
                     new_cypher_query, top_matches = transform_cypher_query(cypher_query)
+
+                    yield "\n\n[New Cypher Query]\n" + new_cypher_query + "\n\n"
+                    self.log_message("ai", f"New Cypher Query: {new_cypher_query}")
+                    self.CHAT_HISTORY.add_ai_message(f"New Cypher Query: {new_cypher_query}")
 
                     # temporary fix for <= and >=, replace all ≥ ≤ with >= and <=
                     new_cypher_query = new_cypher_query.replace("≥", ">=").replace("≤", "<=")
 
                     # Format query display to avoid markdown parsing issues
-                    yield "Found substance name:"
+                    
                     if top_matches:
                         # Display unique top matches by pubchem_cid to avoid duplicates
                         unique_matches = {}
@@ -725,41 +752,49 @@ class DesAgent:
                         unique_match_list.sort(key=lambda x: x['similarity'], reverse=True)
                         
                         # Display the matches
-                        for match in unique_match_list:
-                            yield f"\n- {match['string']} (CID: {match['pubchem_cid']}, Similarity: {match['similarity']}%)"
+                        if len(unique_match_list) > 0:
+                            yield "Found substance name:"
+                            for match in unique_match_list:
+                                yield f"\n- {match['string']} (CID: {match['pubchem_cid']}, Similarity: {match['similarity']}%)"
+                            self.CHAT_HISTORY.add_ai_message(f"Found substance name:\n- {match['string']} (CID: {match['pubchem_cid']}, Similarity: {match['similarity']}%)")
+                            self.log_message("ai", f"Found substance name:\n- {match['string']} (CID: {match['pubchem_cid']}, Similarity: {match['similarity']}%)")
                     else:
                         yield "\nNo substance matches found."
-                    yield "\n\n**New Cypher Query**\n" + new_cypher_query + "\n\n"
-                    result = self.query_graph_with_retry(new_cypher_query, retry_count=3, question=question,result_type="md")
+                        self.CHAT_HISTORY.add_ai_message("\nNo substance matches found.")
+                        self.log_message("ai", "\nNo substance matches found.")
+                    
+                    result = self.query_graph_with_retry(new_cypher_query, retry_count=3, question=question,result_type="df")
                     if result is None:
                         msg = "Error: No results found. Please try another query."
                         self.log_message("ai", msg)
                         self.CHAT_HISTORY.add_ai_message(msg)
                         yield msg + "\n\n"
                     else:
-                        msg = "**Results found**:\n" + result
+                        result_summary = self.summarize_dataframe(result)
+                        msg = f"[Results found]\n{result_summary}"
                         self.log_message("ai", msg)
                         self.CHAT_HISTORY.add_ai_message(msg)
-                        yield msg + "\n\n"
+                        yield f"[Results found]\n"
+                        yield result
+                        yield "\n\n"
                 else:
-                    msg = "Error: No cypher query found in the response."
+                    msg = f"Error: No cypher query found in the response.\n{cypher_response}"
                     self.log_message("ai", msg)
                     self.CHAT_HISTORY.add_ai_message(msg)
                     yield msg + "\n\n"
                     result = None
             else:
                 thought_process = cypher_response["thought_process"]
-                # Format thought process to avoid markdown parsing issues
-                yield "**Thought Process**\n" + thought_process + "\n\n"
-                self.CHAT_HISTORY.add_ai_message("**Thought Process**\n" + thought_process + "\n\n")
+                yield f"[Thought Process]\n{thought_process}\n\n"
+                self.CHAT_HISTORY.add_ai_message(f"[Thought Process]\n{thought_process}\n\n")
+                self.log_message("ai", f"Thought Process: {thought_process}")
                 result = None
                 yield "No cypher query result needed, just answer directly.\n\n"
                 self.CHAT_HISTORY.add_ai_message("No cypher query result needed, just answer directly.")
+                self.log_message("ai", "No cypher query result needed, just answer directly.")
 
             # Prepare final response
-            self.log_message("ai", f"Cypher query result: {result}")
-            self.CHAT_HISTORY.add_ai_message(f"Cypher query result: {result}")
-            final_result_prompt_template = self.create_final_result_prompt_template(use_cypher, result)
+            final_result_prompt_template = self.create_final_result_prompt_template(use_cypher, result_summary)
             answer_agent_prompt = ChatPromptTemplate.from_messages([
                 ("system", self.answer_system_prompt),
                 MessagesPlaceholder(variable_name="chat_history"),
@@ -771,7 +806,7 @@ class DesAgent:
             current_chain = {
                 "question": itemgetter("question"),
                 "chat_history": itemgetter("chat_history"),
-                "results": itemgetter("results")
+                "result_summary": itemgetter("result_summary")
             }
             answer_agent = (
                 current_chain
@@ -787,9 +822,9 @@ class DesAgent:
             )
 
             respond_string = ""
-            yield "**Answer**\n"
+            yield f"[Answer]\n"
             for chunk in chain_with_message_history.stream(
-                {"question": question, "results": result},
+                {"question": question, "result_summary": result_summary},
                 config={"configurable": {"session_id": self.session_id}}
             ):
                 respond_string += chunk
@@ -800,12 +835,12 @@ class DesAgent:
             self.CHAT_HISTORY.add_ai_message(respond_string)
 
             # Visualize the graph
-            if use_cypher == "yes" and result:
+            if use_cypher == "yes" and result_summary:
                 # Apply the transform_cypher_query function also to the visualization
                 visualization_cypher, _ = transform_cypher_query(cypher_query)
                 path_result, path_query = self.cypher_query_to_path(visualization_cypher, question, result)
                 # print(f"cypher_query: {path_query}")
-                yield "\n**Visualize Query**\n" + path_query + "\n\n"
+                yield f"\n\n[Visualize Query]\n{path_query}\n\n"
                 path = self.parse_query_paths(path_query)
                 processed_result = self.process_results(path, path_result)
 
@@ -853,5 +888,5 @@ class DesAgent:
         return None
 
 if __name__ == "__main__":
-    agent = DesAgent()
+    agent = DesAgent(llm_model_name='gpt-4.1-mini-2025-04-14')
     agent.run()

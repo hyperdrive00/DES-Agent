@@ -12,6 +12,7 @@ import streamlit.components.v1 as components
 from DesAgent import DesAgent
 
 import re
+import pandas as pd
 from typing import List, Dict, Any
 import traceback
 
@@ -179,7 +180,7 @@ def build_graph_html(processed_records: List[Dict[str, List[Dict[str, Any]]]]) -
                                 added_edges.add(edge_id)
 
     # Enable physics for a better layout (optional)
-    net.toggle_physics(True)
+    net.toggle_physics(False)
     net.show_buttons(filter_=['physics'])
     net.set_edge_smooth('dynamic')
 
@@ -274,11 +275,17 @@ def main():
     print(f"Time taken for initialization: {end_time - start_time:.2f}s")
 
     # --- 2. Render existing chat messages from session_state. ---
+    # Display messages
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
-            # Use safe markdown for content rendering
+            # Display the content
             safe_markdown(message["content"])
+            
+            # If there's a DataFrame, display it
+            if "dataframe" in message:
+                st.dataframe(message["dataframe"])
 
+            # Handle graph visualization if present
             if message["role"] == "assistant" and "graph" in message and message["graph"]:
                 # Create two columns for Show and Hide Graph buttons
                 col1, col2 = st.columns(2)
@@ -302,9 +309,6 @@ def main():
                 else:
                     # Only add this note when there's a graph capability but it's not shown
                     st.text("Graph is available but hidden. Click 'Show Graph' to view.")
-            
-            # Don't display any additional text for messages without graphs
-            # This prevents potential markdown parsing issues
 
     # --- 3. Chat input box at the bottom for the user to ask a question. ---
     # Regular chat input
@@ -331,39 +335,45 @@ def main():
 
         # Stream the assistant's response
         response_chunks = []
+        current_message = ""
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
             for chunk in st.session_state.agent.task_execution(input_to_process):
-                response_chunks.append(chunk)
-                combined_text = "".join(response_chunks)
-                try:
-                    # Try to render with markdown
-                    message_placeholder.markdown(sanitize_markdown(combined_text))
-                except Exception as e:
-                    # Fallback to plain text if markdown fails
-                    message_placeholder.text(combined_text)
-                    print(f"Streaming markdown error: {e}")
+                if type(chunk) == pd.DataFrame:
+                    # If we have accumulated any text, save it as a message
+                    if current_message:
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": current_message
+                        })
+                        current_message = ""
+                    # Save and display the DataFrame
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": "[DataFrame Results]",
+                        "dataframe": chunk
+                    })
+                    st.dataframe(chunk)
+                else:
+                    # Accumulate text chunks
+                    current_message += str(chunk)
+                    try:
+                        message_placeholder.markdown(sanitize_markdown(current_message))
+                    except Exception as e:
+                        message_placeholder.text(current_message)
+                    response_chunks.append(chunk)
 
-        # Finalize the assistant response
-        final_response = "".join(response_chunks)
+            # Save any remaining text as a message
+            if current_message:
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": current_message
+                })
+
+        # Handle graph visualization if present
         processed_result = st.session_state.agent.get_latest_processed_result()
-
-        # Save assistant response to file
-        with open(user_log_path, "a", encoding="utf-8") as f:
-            f.write(f"[ASSISTANT] \n{final_response}\n\n")
-
-        # Store assistant message + optional graph
         if processed_result:
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": final_response,
-                "graph": processed_result
-            })
-        else:
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": final_response,
-            })
+            st.session_state.messages[-1]["graph"] = processed_result
 
         # Render "Show Graph / Hide Graph" if needed, for the newly generated message
         if st.session_state.messages[-1]["role"] == "assistant" and "graph" in st.session_state.messages[-1]:
@@ -404,22 +414,48 @@ def main():
 
         # Stream the assistant's response
         response_chunks = []
+        current_message = ""
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
             for chunk in st.session_state.agent.task_execution(input_to_process):
-                response_chunks.append(chunk)
-                combined_text = "".join(response_chunks)
-                try:
-                    # Try to render with markdown
-                    message_placeholder.markdown(sanitize_markdown(combined_text))
-                except Exception as e:
-                    # Fallback to plain text if markdown fails
-                    message_placeholder.text(combined_text)
-                    print(f"Streaming markdown error: {e}")
+                if type(chunk) == pd.DataFrame:
+                    # If we have accumulated any text, save it as a message
+                    if current_message:
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": current_message
+                        })
+                        current_message = ""
+                    # Save and display the DataFrame
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": "[DataFrame Results]",
+                        "dataframe": chunk
+                    })
+                    st.dataframe(chunk)
+                else:
+                    # Accumulate text chunks
+                    current_message += str(chunk)
+                    try:
+                        message_placeholder.markdown(sanitize_markdown(current_message))
+                    except Exception as e:
+                        message_placeholder.text(current_message)
+                    response_chunks.append(chunk)
+
+                # Save any remaining text as a message
+                if current_message:
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": current_message
+                    })
+
+        # Handle graph visualization if present
+        processed_result = st.session_state.agent.get_latest_processed_result()
+        if processed_result:
+            st.session_state.messages[-1]["graph"] = processed_result
 
         # Finalize the assistant response
         final_response = "".join(response_chunks)
-        processed_result = st.session_state.agent.get_latest_processed_result()
 
         # Save assistant response to file
         with open(user_log_path, "a", encoding="utf-8") as f:
