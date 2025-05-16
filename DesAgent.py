@@ -418,32 +418,30 @@ class DesAgent:
     def convert_query_result(self, result, result_type="json"):
         """
         Convert the query result to a pandas DataFrame or markdown.
+        When converting to DataFrame, ensure all cells are strings, including for non-primitive types.
         """
-        def stringify_value(val):
-            if isinstance(val, (list, float, int, str)):
-                return val
-            return str(val)
-        # If result is a list of dicts, apply conversion to each dict
-        if isinstance(result, list):
-            processed = [
-                {k: stringify_value(v) for k, v in row.items()}
-                for row in result
-            ]
-        elif isinstance(result, dict):
-            processed = {k: stringify_value(v) for k, v in result.items()}
-        else:
-            processed = stringify_value(result)
-
-        
         if result_type == "json":
             return result
         elif result_type == "df":
-            return pd.json_normalize(result)
+            df = pd.json_normalize(result)
+            # Convert all cells to string, handling non-normal datatypes
+            def safe_str(x):
+                if isinstance(x, (int, float, str)):
+                    return str(x)
+                else:
+                    return json.dumps(x, ensure_ascii=False)
+            df = df.applymap(safe_str)
+            return df
         elif result_type == "md":
             df = pd.json_normalize(result)
+            def safe_str(x):
+                if isinstance(x, (int, float, str)):
+                    return str(x)
+                else:
+                    return json.dumps(x, ensure_ascii=False)
+            df = df.applymap(safe_str)
             markdown_table = df.to_markdown(index=False)
             return markdown_table
-
     def query_graph_with_retry(self, cypher_query, retry_count=3, question=None,result_type="json"):
         """
         Query the Neo4j graph with a retry mechanism.
