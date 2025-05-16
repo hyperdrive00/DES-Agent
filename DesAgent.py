@@ -419,6 +419,22 @@ class DesAgent:
         """
         Convert the query result to a pandas DataFrame or markdown.
         """
+        def stringify_value(val):
+            if isinstance(val, (list, float, int, str)):
+                return val
+            return str(val)
+        # If result is a list of dicts, apply conversion to each dict
+        if isinstance(result, list):
+            processed = [
+                {k: stringify_value(v) for k, v in row.items()}
+                for row in result
+            ]
+        elif isinstance(result, dict):
+            processed = {k: stringify_value(v) for k, v in result.items()}
+        else:
+            processed = stringify_value(result)
+
+        
         if result_type == "json":
             return result
         elif result_type == "df":
