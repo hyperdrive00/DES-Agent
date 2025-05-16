@@ -418,28 +418,16 @@ class DesAgent:
     def convert_query_result(self, result, result_type="json"):
         """
         Convert the query result to a pandas DataFrame or markdown.
-        When converting to DataFrame, ensure all cells are strings, including for non-primitive types.
         """
         if result_type == "json":
             return result
         elif result_type == "df":
             df = pd.json_normalize(result)
-            # Convert all cells to string, handling non-normal datatypes
-            def safe_str(x):
-                if isinstance(x, (int, float, str)):
-                    return str(x)
-                else:
-                    return json.dumps(x, ensure_ascii=False)
-            df = df.applymap(safe_str)
+            # stringify all cells which are not either int, float, or str
+            df = df.map(lambda x: str(x) if not isinstance(x, (int, float, str)) else x)
             return df
         elif result_type == "md":
             df = pd.json_normalize(result)
-            def safe_str(x):
-                if isinstance(x, (int, float, str)):
-                    return str(x)
-                else:
-                    return json.dumps(x, ensure_ascii=False)
-            df = df.applymap(safe_str)
             markdown_table = df.to_markdown(index=False)
             return markdown_table
     def query_graph_with_retry(self, cypher_query, retry_count=3, question=None,result_type="json"):
