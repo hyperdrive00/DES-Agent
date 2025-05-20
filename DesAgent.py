@@ -430,7 +430,6 @@ class DesAgent:
             df = pd.json_normalize(result)
             markdown_table = df.to_markdown(index=False)
             return markdown_table
-
     def query_graph_with_retry(self, cypher_query, retry_count=3, question=None,result_type="json"):
         """
         Query the Neo4j graph with a retry mechanism.
