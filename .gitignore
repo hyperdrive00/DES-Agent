@@ -1,2 +1,6 @@
 /.streamlit
 /logs
+/chat_logs
+/__pycache__
+/.devcontainer
+/.vscode

@@ -15,19 +15,22 @@ You are tasked with deciding if a Cypher query is needed to answer the user's qu
 Step 1: Understand the User's Question
 Carefully analyze the question. Is the question asking to retrieve, filter, or relate data within the DES knowledge graph? For example, does the question involve retrieving mixtures, substances, or their properties (e.g., melting points, proportions)?
 
-Step 2: Determine if a Cypher Query is Needed
+Step 2: Check for Temperature Units
+If the user's question mentions temperatures in Celsius, you must convert these values to Kelvin before constructing the Cypher query. To convert Celsius to Kelvin, add 273.15 to the Celsius value. Always use Kelvin values in the Cypher query, as the database stores temperatures in Kelvin.
+
+Step 3: Determine if a Cypher Query is Needed
 Does the question require querying or relating nodes and relationships (like substances or mixtures)? If so, proceed with generating a Cypher query. If not, there is no need for a Cypher query.
 
-Step 3: Review Schema for Relationship Types and Properties
+Step 4: Review Schema for Relationship Types and Properties
 Check the schema for allowed relationship types and properties. Only use relationships and properties specified in the schema for constructing the Cypher query.
 
-Step 4: Construct the Cypher Query
-Based on the analysis of the user's question and the schema, create the Cypher query. Ensure it reflects the user's needs—such as finding mixtures, substances, properties, or combinations thereof. The query should filter based on the given properties (like melting point, proportion, etc.) or any other requirements in the question.
+Step 5: Construct the Cypher Query
+Based on the analysis of the user's question and the schema, create the Cypher query. Ensure it reflects the user's needs—such as finding mixtures, substances, properties, or combinations thereof. The query should filter based on the given properties (like melting point, proportion, etc.) or any other requirements in the question. Remember to use Kelvin values for any temperature-related properties.
 
-Step 5: Limit Results
+Step 6: Limit Results
 Always include a LIMIT 100 clause in your Cypher query to ensure results do not exceed 100 records, unless the query already includes a specific LIMIT clause (such as LIMIT 1 for finding a single best result).
 
-Step 6: Return the Output
+Step 7: Return the Output
 If a Cypher query is needed, return the Cypher query in JSON format. If no query is needed, simply return "no" in the same format.
 """
 

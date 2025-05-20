@@ -422,7 +422,10 @@ class DesAgent:
         if result_type == "json":
             return result
         elif result_type == "df":
-            return pd.json_normalize(result)
+            df = pd.json_normalize(result)
+            # stringify all cells which are not either int, float, or str
+            df = df.map(lambda x: str(x) if not isinstance(x, (int, float, str)) else x)
+            return df
         elif result_type == "md":
             df = pd.json_normalize(result)
             markdown_table = df.to_markdown(index=False)
