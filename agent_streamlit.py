@@ -79,6 +79,76 @@ def safe_markdown(content):
         st.error(f"Error rendering markdown: {e}")
         st.text(content)
 
+@st.dialog("📚 User Manual")
+def show_user_manual_popup():
+    """Display the user manual in a popup dialog."""
+    # Add custom CSS to make the dialog wider and handle table display
+    st.markdown("""
+    <style>
+    /* Make dialog wider */
+    .stDialog > div {
+        width: 95vw !important;
+        max-width: 1200px !important;
+    }
+    
+    /* Improve table display in dialog */
+    .stDialog table {
+        width: 100% !important;
+        table-layout: auto !important;
+        word-wrap: break-word !important;
+    }
+    
+    /* Prevent text wrapping in table cells */
+    .stDialog td, .stDialog th {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        min-width: 100px !important;
+    }
+    
+    /* Allow horizontal scrolling for wide tables */
+    .stDialog .stMarkdown {
+        overflow-x: auto !important;
+    }
+    
+    /* Better spacing for content */
+    .stDialog .stMarkdown > div {
+        padding: 10px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    manual_path = os.path.join('docs', 'des_agent_doc_en.md')
+    
+    if os.path.exists(manual_path):
+        try:
+            with open(manual_path, "r", encoding="utf-8") as f:
+                manual_content = f.read()
+            
+            # Create a larger scrollable container for the manual content
+            with st.container(height=700):
+                # Render markdown directly without sanitization for the manual
+                st.markdown(manual_content, unsafe_allow_html=True)
+                
+        except Exception as e:
+            st.error(f"Error loading user manual: {e}")
+            # Fallback to plain text display
+            try:
+                with open(manual_path, "r", encoding="utf-8") as f:
+                    manual_content = f.read()
+                st.text(manual_content)
+            except:
+                st.error("Could not display manual content.")
+    else:
+        st.error("User manual file not found at: `docs/des_agent_doc_en.md`")
+        st.info("Please ensure the user manual file exists in the docs directory.")
+    
+    # Add a close button at the bottom
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("Close Manual", type="primary", use_container_width=True):
+            st.rerun()
+
 def build_graph_html(processed_records: List[Dict[str, List[Dict[str, Any]]]]) -> str:
     """
     Builds an interactive graph using PyVis based on the processed Neo4j query results.
@@ -256,14 +326,53 @@ def main():
     # Make sure logs folder exists
     os.makedirs("logs", exist_ok=True)
 
-    # --- 1. Handle Session State for session_id, DESAgent, and Messages. ---
+    # --- 1. Initialize Session State Variables ---
     if "session_id" not in st.session_state:
         current_time = datetime.now().strftime("%Y%m%d%H%M%S")
         random_number = random.randint(1000, 9999)
         st.session_state.session_id = f"{current_time}_{random_number}"
 
-    if "agent" not in st.session_state:
-        st.session_state.agent = DesAgent(session_id=st.session_state.session_id)
+    # Initialize API configuration state variables
+    if "api_mode" not in st.session_state:
+        st.session_state.api_mode = "free"
+    if "user_api_key" not in st.session_state:
+        st.session_state.user_api_key = ""
+    if "user_base_url" not in st.session_state:
+        st.session_state.user_base_url = ""
+    if "api_config_changed" not in st.session_state:
+        st.session_state.api_config_changed = False
+
+    # Initialize or reinitialize agent if configuration changed
+    if "agent" not in st.session_state or st.session_state.api_config_changed:
+        try:
+            if st.session_state.api_mode == "user" and not st.session_state.user_api_key:
+                # Don't initialize agent without API key
+                if "agent" in st.session_state:
+                    del st.session_state.agent
+            else:
+                # Show initialization message
+                if st.session_state.api_config_changed:
+                    with st.spinner("🔄 Updating agent configuration..."):
+                        time.sleep(0.5)  # Brief pause for UX
+                
+                # Initialize agent with current configuration
+                st.session_state.agent = DesAgent(
+                    session_id=st.session_state.session_id,
+                    api_mode=st.session_state.api_mode,
+                    user_api_key=st.session_state.user_api_key if st.session_state.api_mode == "user" else None,
+                    user_base_url=st.session_state.user_base_url if st.session_state.api_mode == "user" else None
+                )
+                
+                # Show success message and reset flag
+                if st.session_state.api_config_changed:
+                    st.success("✅ Agent configuration updated successfully!")
+                    st.session_state.api_config_changed = False
+                    
+        except Exception as e:
+            st.error(f"❌ Failed to initialize agent: {str(e)}")
+            if "agent" in st.session_state:
+                del st.session_state.agent
+            st.session_state.api_config_changed = False
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -272,19 +381,127 @@ def main():
     if "graph_visibility" not in st.session_state:
         st.session_state.graph_visibility = {}
 
-    # 1. Initialize the user manual visibility in session_state if not set
-    if "show_user_manual" not in st.session_state:
-        st.session_state.show_user_manual = False
+
 
     # ---- SIDEBAR SECTION ----
     # Move manual controls to sidebar
     st.sidebar.title("Options")
     
+    # API Configuration Section
+    st.sidebar.subheader("API Configuration")
+    
+    # API Mode Selection
+    api_mode = st.sidebar.radio(
+        "Choose API Mode:",
+        options=["free", "user"],
+        format_func=lambda x: "Free (OpenRouter)" if x == "free" else "Your API Key",
+        index=0 if st.session_state.api_mode == "free" else 1,
+        key="api_mode_radio"
+    )
+    
+    # User API configuration
+    user_api_key = ""
+    user_base_url = ""
+    
+    if api_mode == "user":
+        st.sidebar.markdown("**Enter your API credentials:**")
+        user_api_key = st.sidebar.text_input(
+            "API Key:",
+            type="password",
+            value=st.session_state.user_api_key,
+            help="Enter your OpenAI API key or compatible API key"
+        )
+        user_base_url = st.sidebar.text_input(
+            "Base URL (optional):",
+            value=st.session_state.user_base_url,
+            help="Leave empty for OpenAI, or enter custom endpoint"
+        )
+        
+        if not user_api_key:
+            st.sidebar.warning("⚠️ Please enter your API key to use this mode")
+    else:
+        st.sidebar.info("ℹ️ Using free OpenRouter API with limited model")
+        # Check if OpenRouter API key is configured
+        try:
+            openrouter_key = st.secrets.get('OPENROUTER_FREE_API_KEY', None)
+            if not openrouter_key or openrouter_key == "your-openrouter-free-api-key-here":
+                st.sidebar.warning("⚠️ OpenRouter API key not configured in secrets.toml")
+        except:
+            pass
+    
+    # Check if configuration changed
+    config_changed = (api_mode != st.session_state.api_mode or 
+                     user_api_key != st.session_state.user_api_key or 
+                     user_base_url != st.session_state.user_base_url)
+    
+    if config_changed:
+        # Store pending changes without applying them yet
+        if "pending_api_mode" not in st.session_state:
+            st.session_state.pending_api_mode = api_mode
+            st.session_state.pending_user_api_key = user_api_key
+            st.session_state.pending_user_base_url = user_base_url
+        else:
+            st.session_state.pending_api_mode = api_mode
+            st.session_state.pending_user_api_key = user_api_key
+            st.session_state.pending_user_base_url = user_base_url
+        
+        # Show confirmation section
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("⚠️ Configuration Changed")
+        
+        # Show what's changing
+        if api_mode != st.session_state.api_mode:
+            old_mode = "Free (OpenRouter)" if st.session_state.api_mode == "free" else "Your API Key"
+            new_mode = "Free (OpenRouter)" if api_mode == "free" else "Your API Key"
+            st.sidebar.write(f"**Mode:** {old_mode} → {new_mode}")
+        
+        if user_api_key != st.session_state.user_api_key:
+            if user_api_key:
+                st.sidebar.write(f"**API Key:** Updated")
+            else:
+                st.sidebar.write(f"**API Key:** Removed")
+        
+        if user_base_url != st.session_state.user_base_url:
+            st.sidebar.write(f"**Base URL:** {st.session_state.user_base_url or 'Default'} → {user_base_url or 'Default'}")
+        
+        # Confirmation buttons
+        col1, col2 = st.sidebar.columns(2)
+        
+        with col1:
+            if st.button("✅ Apply Changes", key="apply_config", type="primary"):
+                # Apply the changes
+                st.session_state.api_mode = st.session_state.pending_api_mode
+                st.session_state.user_api_key = st.session_state.pending_user_api_key
+                st.session_state.user_base_url = st.session_state.pending_user_base_url
+                st.session_state.api_config_changed = True
+                
+                # Clear pending changes
+                del st.session_state.pending_api_mode
+                del st.session_state.pending_user_api_key
+                del st.session_state.pending_user_base_url
+                
+                st.rerun()
+        
+        with col2:
+            if st.button("❌ Cancel", key="cancel_config"):
+                # Clear pending changes without applying
+                del st.session_state.pending_api_mode
+                del st.session_state.pending_user_api_key
+                del st.session_state.pending_user_base_url
+                st.rerun()
+        
+        st.sidebar.info("Click 'Apply Changes' to update the agent configuration.")
+    else:
+        # Clear any pending changes if configuration matches current
+        if "pending_api_mode" in st.session_state:
+            del st.session_state.pending_api_mode
+            del st.session_state.pending_user_api_key
+            del st.session_state.pending_user_base_url
+    
     # Add manual controls to sidebar
-    if st.sidebar.button("Show Manual"):
-        st.session_state.show_user_manual = True
-    if st.sidebar.button("Hide Manual"):
-        st.session_state.show_user_manual = False
+    st.sidebar.subheader("User Manual")
+    if st.sidebar.button("📚 Show Manual", use_container_width=True):
+        show_user_manual_popup()
     
     # Add predefined questions to sidebar
     st.sidebar.subheader("Predefined Questions")
@@ -320,18 +537,6 @@ def main():
             st.rerun()
         
     # ----- MAIN SECTION -----
-    # 3. Conditionally render the user manual
-    if st.session_state.show_user_manual:
-        # Load user manual content from an external Markdown file
-        manual_path = os.path.join('docs', 'des_agent_doc_en.md')
-        if os.path.exists(manual_path):
-            with open(manual_path, "r", encoding="utf-8") as f:
-                manual_content = f.read()
-            # Safely render the manual content
-            safe_markdown(manual_content)
-        else:
-            st.error("User manual file not found.")
-
     end_time = time.time()
     print(f"Time taken for initialization: {end_time - start_time:.2f}s")
 
@@ -375,6 +580,21 @@ def main():
     # Regular chat input
     user_input = st.chat_input("Ask the DESAgent something...", key="chat_input")
     
+    # Display current configuration status
+    if "agent" in st.session_state:
+        if st.session_state.api_mode == "free":
+            st.info(f"🤖 Using OpenRouter Free Tier: {st.session_state.agent.llm_model_name}")
+        else:
+            st.info(f"🤖 Using Your API: {st.session_state.agent.llm_model_name}")
+
+    # Check if agent is available before processing
+    if "agent" not in st.session_state:
+        if st.session_state.api_mode == "user" and not st.session_state.user_api_key:
+            st.warning("⚠️ Please enter your API key in the sidebar to start chatting.")
+        else:
+            st.error("❌ Agent initialization failed. Please check your configuration.")
+        return
+
     # Process predefined question if selected
     if st.session_state.should_process_predefined and st.session_state.predefined_question:
         input_to_process = st.session_state.predefined_question
@@ -399,7 +619,22 @@ def main():
         current_message = ""
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
-            for chunk in st.session_state.agent.task_execution(input_to_process):
+            
+            # Show loading animation while waiting for first response
+            with st.spinner("🤖 Thinking and generating response..."):
+                agent_generator = st.session_state.agent.task_execution(input_to_process)
+                # Get the first chunk to end the spinner
+                try:
+                    first_chunk = next(agent_generator)
+                    chunks_to_process = [first_chunk]
+                    # Collect remaining chunks
+                    for chunk in agent_generator:
+                        chunks_to_process.append(chunk)
+                except StopIteration:
+                    chunks_to_process = []
+            
+            # Now process all chunks without spinner
+            for chunk in chunks_to_process:
                 if type(chunk) == pd.DataFrame:
                     # If we have accumulated any text, save it as a message
                     if current_message:
@@ -489,7 +724,22 @@ def main():
         current_message = ""
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
-            for chunk in st.session_state.agent.task_execution(input_to_process):
+            
+            # Show loading animation while waiting for first response
+            with st.spinner("🤖 Thinking and generating response..."):
+                agent_generator = st.session_state.agent.task_execution(input_to_process)
+                # Get the first chunk to end the spinner
+                try:
+                    first_chunk = next(agent_generator)
+                    chunks_to_process = [first_chunk]
+                    # Collect remaining chunks
+                    for chunk in agent_generator:
+                        chunks_to_process.append(chunk)
+                except StopIteration:
+                    chunks_to_process = []
+            
+            # Now process all chunks without spinner
+            for chunk in chunks_to_process:
                 if type(chunk) == pd.DataFrame:
                     # If we have accumulated any text, save it as a message
                     if current_message:

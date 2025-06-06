@@ -7,6 +7,7 @@ from operator import itemgetter
 # from langchain_huggingface import HuggingFaceEmbeddings
 # from langchain_chroma import Chroma
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+from langchain_core.output_parsers.base import BaseOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate, MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage
@@ -42,8 +43,14 @@ NEO4J_URI = st.secrets['neo4j_credentials']['NEO4J_URI']
 NEO4J_USER = st.secrets['neo4j_credentials']['NEO4J_USER']
 NEO4J_PASSWORD = st.secrets['neo4j_credentials']['NEO4J_PASSWORD']
 
-BASE_URL = None
-# BASE_URL = "https://service-56tr1g58-1317694151.usw.apigw.tencentcs.com/v1"
+# OpenRouter configuration for free tier
+OPENROUTER_FREE_API_KEY = st.secrets.get('OPENROUTER_FREE_API_KEY', None)
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_FREE_MODEL = "deepseek/deepseek-r1-0528:free"
+
+# Default configuration
+DEFAULT_BASE_URL = None
+DEFAULT_MODEL = "gpt-4o"
 
 CYPHER_CLAUSE_KEYWORDS = [
     'MATCH',
@@ -69,6 +76,66 @@ CLAUSE_PATTERN = '|'.join([re.escape(keyword) for keyword in CYPHER_CLAUSE_KEYWO
 
 # end_time = time.time()
 # print(f"Time taken for imports: {end_time - start_time:.2f}s")
+
+class FlexibleJsonOutputParser(BaseOutputParser):
+    """
+    A flexible JSON parser that can handle responses from models that don't strictly 
+    follow JSON format requirements using json_repair.
+    """
+    
+    def parse(self, text: str) -> dict:
+        """Parse the output of an LLM call to a JSON object."""
+        try:
+            # First try standard JSON parsing
+            return json.loads(text)
+        except json.JSONDecodeError:
+            try:
+                # Use json_repair to fix malformed JSON
+                repaired = repair_json(text)
+                return json.loads(repaired)
+            except Exception as e:
+                print(f"JSON repair failed: {e}")
+                
+                # Extract JSON-like content from text using regex as last resort
+                import re
+                json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+                matches = re.findall(json_pattern, text, re.DOTALL)
+                
+                for match in matches:
+                    try:
+                        # Try to repair each potential JSON block
+                        repaired_match = repair_json(match)
+                        result = json.loads(repaired_match)
+                        # Validate that it has expected structure
+                        if isinstance(result, dict) and ('use_cypher' in result or 'cypher_query' in result):
+                            return result
+                    except:
+                        continue
+                
+                # If all JSON extraction fails, construct a fallback response
+                print(f"Falling back to text analysis for: {text[:200]}...")
+                
+                if "use_cypher" in text.lower():
+                    if any(word in text.lower() for word in ["yes", "true", "match", "return"]):
+                        # Try to extract cypher query
+                        cypher_match = re.search(r'(MATCH.*?RETURN[^.]*)', text, re.IGNORECASE | re.DOTALL)
+                        cypher_query = cypher_match.group(1).strip() if cypher_match else "MATCH (n) RETURN n LIMIT 5"
+                        return {
+                            "use_cypher": "yes",
+                            "thought_process": "Extracted from free-form response due to JSON parsing issues",
+                            "cypher_query": cypher_query
+                        }
+                    else:
+                        return {
+                            "use_cypher": "no",
+                            "thought_process": text[:500] if len(text) > 500 else text
+                        }
+                else:
+                    # Default fallback
+                    return {
+                        "use_cypher": "no",
+                        "thought_process": text[:500] if len(text) > 500 else text
+                    }
 
 string_list = json.load(open('substance_string_list.json', 'r'))
 
@@ -241,15 +308,37 @@ def transform_cypher_query(query_text):
 class DesAgent:
     """Description Agent for querying Neo4j graph using LangChain."""
     
-    def __init__(self, llm_model_name="gpt-4o", session_id=None):
+    def __init__(self, llm_model_name=None, session_id=None, api_mode="free", user_api_key=None, user_base_url=None):
         """
         Initialize the DesAgent with LLM model and session details.
 
         Args:
-            llm_model_name (str): Name of the language model to use.
+            llm_model_name (str, optional): Name of the language model to use. If None, uses default based on api_mode.
             session_id (str, optional): Session identifier. Defaults to "global".
+            api_mode (str): Either "free" for OpenRouter free tier or "user" for user-provided API key.
+            user_api_key (str, optional): User's API key when api_mode is "user".
+            user_base_url (str, optional): User's base URL when api_mode is "user".
         """
-        self.llm_model_name = llm_model_name
+        self.api_mode = api_mode
+        self.user_api_key = user_api_key
+        self.user_base_url = user_base_url
+        
+        # Configure API settings based on mode
+        if api_mode == "free":
+            self.llm_model_name = llm_model_name or OPENROUTER_FREE_MODEL
+            self.base_url = OPENROUTER_BASE_URL
+            self.api_key = OPENROUTER_FREE_API_KEY
+            if not self.api_key:
+                raise ValueError("OpenRouter free API key not found in secrets. Please configure OPENROUTER_FREE_API_KEY.")
+        elif api_mode == "user":
+            self.llm_model_name = llm_model_name or DEFAULT_MODEL
+            self.base_url = user_base_url or DEFAULT_BASE_URL
+            self.api_key = user_api_key
+            if not self.api_key:
+                raise ValueError("User API key is required when api_mode is 'user'.")
+        else:
+            raise ValueError("api_mode must be either 'free' or 'user'")
+            
         self.session_id = session_id or "global"  # fallback
         self.log_dir = "chat_logs"
         self.log_file = f"./{self.log_dir}/chat_log_{self.session_id}.txt"
@@ -293,13 +382,36 @@ class DesAgent:
                 ("human", "{question}"),
             ]
         )
-        self.cypher_llm = ChatOpenAI(model=self.llm_model_name,temperature=0,base_url=BASE_URL,model_kwargs={"response_format": {"type": "json_object"}})
-        self.answer_llm = ChatOpenAI(model=self.llm_model_name,temperature=0,base_url=BASE_URL)
+        
+        # Configure LLM clients based on API mode
+        llm_kwargs = {
+            "model": self.llm_model_name,
+            "temperature": 0,
+            "api_key": self.api_key,
+        }
+        
+        if self.base_url:
+            llm_kwargs["base_url"] = self.base_url
+            
+        # For OpenRouter, we need to handle JSON mode differently
+        if api_mode == "free":
+            # OpenRouter free tier may not support JSON mode reliably
+            self.cypher_llm = ChatOpenAI(**llm_kwargs)
+            self.answer_llm = ChatOpenAI(**llm_kwargs)
+            json_parser = JsonOutputParser()
+        else:
+            # User's API (likely OpenAI) supports JSON mode
+            cypher_kwargs = llm_kwargs.copy()
+            cypher_kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+            self.cypher_llm = ChatOpenAI(**cypher_kwargs)
+            self.answer_llm = ChatOpenAI(**llm_kwargs)
+            json_parser = JsonOutputParser()
+            
         self.cypher_chain = (
             {"question": itemgetter("question"), "chat_history": itemgetter("chat_history"), "fewshot_examples": itemgetter("fewshot_examples")}
             | self.cypher_agent_prompt
             | self.cypher_llm 
-            | JsonOutputParser())
+            | json_parser)
         
         self.fix_cypher_query_prompt = ChatPromptTemplate.from_messages(
             [
@@ -313,7 +425,7 @@ class DesAgent:
         self.fix_cypher_query_chain = (
             {"question": itemgetter("question"), "schema": itemgetter("schema"), "error_message": itemgetter("error_message"), "cypher_query": itemgetter("cypher_query")}
             | self.fix_cypher_query_prompt
-            | self.cypher_llm
+            | self.answer_llm  # Use answer_llm for string output
             | StrOutputParser()
         )
 
@@ -328,7 +440,7 @@ class DesAgent:
             {"cypher_query": itemgetter("cypher_query"), "result": itemgetter("result"),"schema": itemgetter("schema")}
             | self.convert_cypher_prompt
             | self.cypher_llm
-            | JsonOutputParser()
+            | json_parser
         )
         self.cypher_clause_keywords = CYPHER_CLAUSE_KEYWORDS
         self.clause_pattern = CLAUSE_PATTERN
@@ -892,5 +1004,6 @@ class DesAgent:
         return None
 
 if __name__ == "__main__":
-    agent = DesAgent(llm_model_name='gpt-4.1-mini-2025-04-14')
+    # Example usage with free mode
+    agent = DesAgent(api_mode="free")
     agent.run()
