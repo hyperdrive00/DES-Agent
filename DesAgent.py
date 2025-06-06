@@ -46,9 +46,45 @@ NEO4J_PASSWORD = st.secrets['neo4j_credentials']['NEO4J_PASSWORD']
 # OpenRouter configuration for free tier
 OPENROUTER_FREE_API_KEY = st.secrets.get('OPENROUTER_FREE_API_KEY', None)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-OPENROUTER_FREE_MODEL = "deepseek/deepseek-r1-0528:free"
 
-# Default configuration
+# OpenRouter Free Tier Models (updated list as of 2025)
+OPENROUTER_FREE_MODELS = {
+    # DeepSeek Models
+    "deepseek/deepseek-chat-v3-0324:free": "DeepSeek Chat V3 - Excellent for coding and general tasks",
+    "deepseek/deepseek-r1:free": "DeepSeek R1 - Advanced reasoning model with open reasoning tokens",
+    "deepseek/deepseek-r1-zero:free": "DeepSeek R1 Zero - RL-trained model without SFT",
+    "deepseek/deepseek-r1-0528-qwen3-8b:free": "DeepSeek R1 0528 Qwen3 8B - Latest reasoning model",
+    "deepseek/deepseek-r1-distill-llama-70b:free": "DeepSeek R1 Distill Llama 70B - High performance distilled model",
+    "deepseek/deepseek-r1-distill-qwen-32b:free": "DeepSeek R1 Distill Qwen 32B - Strong reasoning capabilities",
+    "deepseek/deepseek-r1-distill-qwen-14b:free": "DeepSeek R1 Distill Qwen 14B - Balanced performance",
+    "deepseek/deepseek-r1-distill-qwen-7b:free": "DeepSeek R1 Distill Qwen 7B - Efficient reasoning model",
+    "deepseek/deepseek-r1-distill-qwen-1.5b:free": "DeepSeek R1 Distill Qwen 1.5B - Lightweight yet capable",
+    "deepseek/deepseek-r1-distill-llama-8b:free": "DeepSeek R1 Distill Llama 8B - Good balance of size and performance",
+    "deepseek/deepseek-v3-base:free": "DeepSeek V3 Base - 671B parameter base model",
+    
+    # Meta Llama Models
+    "meta-llama/llama-4-scout:free": "Llama 4 Scout - Multimodal MoE model with 200K context",
+    "meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B Instruct - High-quality instruction following",
+    
+    # Google Models
+    "google/gemini-2.5-pro-exp-03-25:free": "Gemini 2.5 Pro Experimental - Latest Google model",
+    "google/gemini-2.0-flash-thinking-exp:free": "Gemini 2.0 Flash Thinking - Fast reasoning model",
+    "google/gemini-2.0-flash-exp:free": "Gemini 2.0 Flash Experimental - Quick responses",
+    "google/gemma-3-27b-it:free": "Gemma 3 27B IT - Google's open model",
+    
+    # Qwen Models
+    "qwen/qwen3-4b:free": "Qwen3 4B - Dual-mode architecture with 128K context",
+    "qwen/qwen3-0.6b-04-28:free": "Qwen3 0.6B - Lightweight model with 32K context",
+    "qwen/qwq-32b:free": "QwQ 32B - Specialized reasoning model",
+    
+    # NVIDIA Models
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1:free": "Llama 3.1 Nemotron Ultra 253B - NVIDIA's flagship model"
+}
+
+# Default fallback model
+DEFAULT_FREE_MODEL = "deepseek/deepseek-chat-v3-0324:free"
+
+# Default configuration for user API
 DEFAULT_BASE_URL = None
 DEFAULT_MODEL = "gpt-4o"
 
@@ -313,7 +349,9 @@ class DesAgent:
         Initialize the DesAgent with LLM model and session details.
 
         Args:
-            llm_model_name (str, optional): Name of the language model to use. If None, uses default based on api_mode.
+            llm_model_name (str, optional): Name of the language model to use. 
+                                          For free mode: choose from OPENROUTER_FREE_MODELS.keys() or None for default.
+                                          For user mode: any model supported by the API.
             session_id (str, optional): Session identifier. Defaults to "global".
             api_mode (str): Either "free" for OpenRouter free tier or "user" for user-provided API key.
             user_api_key (str, optional): User's API key when api_mode is "user".
@@ -325,7 +363,20 @@ class DesAgent:
         
         # Configure API settings based on mode
         if api_mode == "free":
-            self.llm_model_name = llm_model_name or OPENROUTER_FREE_MODEL
+            # Validate model selection for free mode
+            if llm_model_name:
+                # Check if model is in our known free models list
+                if llm_model_name not in OPENROUTER_FREE_MODELS:
+                    # If not in our list, check if it's at least formatted correctly as a free model
+                    if not llm_model_name.endswith(":free"):
+                        raise ValueError(f"Invalid free model '{llm_model_name}'. Model must end with ':free' for free tier usage.")
+                    elif "/" not in llm_model_name:
+                        raise ValueError(f"Invalid model format '{llm_model_name}'. Expected format: 'provider/model-name:free'")
+                    else:
+                        # Model format looks correct but not in our list - warn but allow
+                        print(f"Warning: Model '{llm_model_name}' not in known free models list. Attempting to use anyway...")
+            
+            self.llm_model_name = llm_model_name or DEFAULT_FREE_MODEL
             self.base_url = OPENROUTER_BASE_URL
             self.api_key = OPENROUTER_FREE_API_KEY
             if not self.api_key:
@@ -396,16 +447,28 @@ class DesAgent:
         # For OpenRouter, we need to handle JSON mode differently
         if api_mode == "free":
             # OpenRouter free tier may not support JSON mode reliably
-            self.cypher_llm = ChatOpenAI(**llm_kwargs)
-            self.answer_llm = ChatOpenAI(**llm_kwargs)
-            json_parser = JsonOutputParser()
+            try:
+                self.cypher_llm = ChatOpenAI(**llm_kwargs)
+                self.answer_llm = ChatOpenAI(**llm_kwargs)
+                json_parser = JsonOutputParser()
+            except Exception as e:
+                if "model" in str(e).lower() and "not found" in str(e).lower():
+                    raise ValueError(f"Model '{self.llm_model_name}' not found on OpenRouter. Please check the model name and try again.")
+                else:
+                    raise e
         else:
             # User's API (likely OpenAI) supports JSON mode
             cypher_kwargs = llm_kwargs.copy()
             cypher_kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
-            self.cypher_llm = ChatOpenAI(**cypher_kwargs)
-            self.answer_llm = ChatOpenAI(**llm_kwargs)
-            json_parser = JsonOutputParser()
+            try:
+                self.cypher_llm = ChatOpenAI(**cypher_kwargs)
+                self.answer_llm = ChatOpenAI(**llm_kwargs)
+                json_parser = JsonOutputParser()
+            except Exception as e:
+                if "model" in str(e).lower() and "not found" in str(e).lower():
+                    raise ValueError(f"Model '{self.llm_model_name}' not found. Please check the model name and try again.")
+                else:
+                    raise e
             
         self.cypher_chain = (
             {"question": itemgetter("question"), "chat_history": itemgetter("chat_history"), "fewshot_examples": itemgetter("fewshot_examples")}
@@ -449,6 +512,87 @@ class DesAgent:
         
         # Initialize a list to store processed results for each query
         self.processed_results = []
+
+    @classmethod
+    def get_available_free_models(cls):
+        """
+        Get a dictionary of all available free models and their descriptions.
+        
+        Returns:
+            dict: Dictionary mapping model names to descriptions.
+        """
+        return OPENROUTER_FREE_MODELS.copy()
+    
+    @classmethod
+    def list_free_models(cls):
+        """
+        Print a formatted list of all available free models.
+        """
+        print("Available OpenRouter Free Tier Models:")
+        print("=" * 50)
+        for model, description in OPENROUTER_FREE_MODELS.items():
+            print(f"Model: {model}")
+            print(f"Description: {description}")
+            print("-" * 50)
+    
+    @classmethod
+    def get_models_by_provider(cls, provider=None):
+        """
+        Get models filtered by provider.
+        
+        Args:
+            provider (str, optional): Provider name (e.g., 'deepseek', 'meta-llama', 'google', 'qwen', 'nvidia').
+                                    If None, returns all models grouped by provider.
+        
+        Returns:
+            dict: Models filtered by provider or all models grouped by provider.
+        """
+        if provider is None:
+            # Group all models by provider
+            grouped = {}
+            for model, desc in OPENROUTER_FREE_MODELS.items():
+                model_provider = model.split('/')[0]
+                if model_provider not in grouped:
+                    grouped[model_provider] = {}
+                grouped[model_provider][model] = desc
+            return grouped
+        else:
+            # Filter by specific provider
+            return {k: v for k, v in OPENROUTER_FREE_MODELS.items() if k.startswith(f"{provider}/")}
+    
+    @classmethod
+    def get_recommended_models(cls):
+        """
+        Get a list of recommended models for different use cases.
+        
+        Returns:
+            dict: Dictionary with use cases as keys and recommended models as values.
+        """
+        return {
+            "coding": [
+                "deepseek/deepseek-chat-v3-0324:free",
+                "deepseek/deepseek-r1:free",
+                "deepseek/deepseek-r1-distill-llama-70b:free"
+            ],
+            "reasoning": [
+                "deepseek/deepseek-r1:free",
+                "deepseek/deepseek-r1-0528-qwen3-8b:free",
+                "qwen/qwq-32b:free"
+            ],
+            "general_chat": [
+                "meta-llama/llama-3.3-70b-instruct:free",
+                "google/gemini-2.0-flash-exp:free",
+                "deepseek/deepseek-chat-v3-0324:free"
+            ],
+            "lightweight": [
+                "deepseek/deepseek-r1-distill-qwen-1.5b:free",
+                "qwen/qwen3-0.6b-04-28:free",
+                "deepseek/deepseek-r1-distill-llama-8b:free"
+            ],
+            "multimodal": [
+                "meta-llama/llama-4-scout:free"
+            ]
+        }
 
     def start_session_log(self):
         """
@@ -1005,5 +1149,36 @@ class DesAgent:
 
 if __name__ == "__main__":
     # Example usage with free mode
+    
+    # List all available free models
+    print("=== Available Free Models ===")
+    DesAgent.list_free_models()
+    
+    # Get recommendations for different use cases
+    print("\n=== Recommended Models by Use Case ===")
+    recommendations = DesAgent.get_recommended_models()
+    for use_case, models in recommendations.items():
+        print(f"\n{use_case.title()}:")
+        for model in models:
+            print(f"  - {model}")
+    
+    # Example with default free model
+    print(f"\n=== Using Default Model ({DEFAULT_FREE_MODEL}) ===")
     agent = DesAgent(api_mode="free")
+    
+    # Example with specific model selection
+    print(f"\n=== Using Specific Model for Reasoning Tasks ===")
+    reasoning_agent = DesAgent(
+        llm_model_name="deepseek/deepseek-r1:free", 
+        api_mode="free"
+    )
+    
+    # Example with coding-focused model
+    print(f"\n=== Using Model for Coding Tasks ===")
+    coding_agent = DesAgent(
+        llm_model_name="deepseek/deepseek-chat-v3-0324:free", 
+        api_mode="free"
+    )
+    
+    # Run the agent
     agent.run()

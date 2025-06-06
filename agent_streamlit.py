@@ -149,6 +149,211 @@ def show_user_manual_popup():
         if st.button("Close Manual", type="primary", use_container_width=True):
             st.rerun()
 
+@st.dialog("⚙️ Settings")
+def show_settings_dialog():
+    """Display the settings configuration in a popup dialog."""
+    st.markdown("""
+    <style>
+    .stDialog > div {
+        width: 80vw !important;
+        max-width: 800px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.subheader("API Configuration")
+    
+    # API Mode Selection
+    api_mode = st.radio(
+        "Choose API Mode:",
+        options=["free", "user"],
+        format_func=lambda x: "🆓 Free (OpenRouter)" if x == "free" else "🔑 Your API Key",
+        index=0 if st.session_state.api_mode == "free" else 1,
+        key="settings_api_mode_radio"
+    )
+    
+    # User API configuration
+    user_api_key = ""
+    user_base_url = ""
+    user_model_name = ""
+    
+    if api_mode == "user":
+        st.markdown("### OpenAI-Compatible API Configuration")
+        st.info("💡 Supports OpenAI and OpenAI SDK-compatible services like DeepSeek, Qwen (Alibaba), Together AI, etc.")
+        
+        user_api_key = st.text_input(
+            "API Key:",
+            type="password",
+            value=st.session_state.user_api_key,
+            help="Enter your API key from OpenAI or compatible service (DeepSeek, Qwen, etc.)"
+        )
+        user_base_url = st.text_input(
+            "Base URL:",
+            value=st.session_state.user_base_url,
+            placeholder="e.g., https://api.deepseek.com",
+            help="API endpoint URL. Leave empty for OpenAI (api.openai.com). Examples: DeepSeek: https://api.deepseek.com, Qwen: https://dashscope.aliyuncs.com/compatible-mode/v1"
+        )
+        user_model_name = st.text_input(
+            "Model Name:",
+            value=st.session_state.get("user_model_name", ""),
+            placeholder="e.g., deepseek-chat, qwen-plus",
+            help="Model name to use. Examples: DeepSeek: 'deepseek-chat', Qwen: 'qwen-plus', OpenAI: 'gpt-4o-mini'"
+        )
+        
+        # Examples section
+        with st.expander("📋 Service Examples"):
+            st.markdown("""
+            **DeepSeek:**
+            - Base URL: `https://api.deepseek.com`
+            - Model: `deepseek-chat`
+            
+            **Qwen (Alibaba):**
+            - Base URL: `https://dashscope.aliyuncs.com/compatible-mode/v1`
+            - Model: `qwen-plus` or `qwen-turbo`
+            
+            **OpenAI:**
+            - Base URL: (leave empty)
+            - Model: `gpt-4o-mini`, `gpt-4o`, etc.
+            """)
+        
+        if not user_api_key:
+            st.warning("⚠️ Please enter your API key to use this mode")
+    else:
+        st.markdown("### Free OpenRouter Configuration")
+        st.info("ℹ️ Using free OpenRouter API")
+        
+        # Model Selection for Free Mode
+        st.markdown("**Choose Model:**")
+        
+        # Link to OpenRouter free models
+        st.markdown(
+            "🔗 **[Browse Free Models on OpenRouter](https://openrouter.ai/models?q=free)**"
+        )
+        st.markdown(
+            "💡 Look for models with the `:free` suffix"
+        )
+        
+        # Simple text input for model name
+        selected_model = st.text_input(
+            "Model Name:",
+            value=st.session_state.selected_model or "",
+            placeholder="e.g., deepseek/deepseek-chat-v3-0324:free",
+            help="Enter the exact model name from OpenRouter (must end with :free)"
+        )
+        
+        # Quick examples
+        st.markdown("**Popular free models:**")
+        popular_models = [
+            "deepseek/deepseek-chat-v3-0324:free",
+            "deepseek/deepseek-r1:free", 
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "google/gemini-2.0-flash-exp:free"
+        ]
+        
+        cols = st.columns(2)
+        for i, model in enumerate(popular_models):
+            with cols[i % 2]:
+                model_display = model.split('/')[1].replace(':free', '')
+                if st.button(f"📋 {model_display}", key=f"settings_copy_{model}", use_container_width=True):
+                    selected_model = model
+                    st.rerun()
+        
+        # Check if OpenRouter API key is configured
+        try:
+            openrouter_key = st.secrets.get('OPENROUTER_FREE_API_KEY', None)
+            if not openrouter_key or openrouter_key == "your-openrouter-free-api-key-here":
+                st.warning("⚠️ OpenRouter API key not configured in secrets.toml")
+        except:
+            pass
+    
+    # Check if configuration changed
+    config_changed = (api_mode != st.session_state.api_mode or 
+                     user_api_key != st.session_state.user_api_key or 
+                     user_base_url != st.session_state.user_base_url or
+                     (api_mode == "user" and user_model_name != st.session_state.user_model_name) or
+                     (api_mode == "free" and selected_model != st.session_state.selected_model))
+    
+    if config_changed:
+        st.markdown("---")
+        st.subheader("⚠️ Configuration Changed")
+        
+        # Show what's changing
+        if api_mode != st.session_state.api_mode:
+            old_mode = "🆓 Free (OpenRouter)" if st.session_state.api_mode == "free" else "🔑 Your API Key"
+            new_mode = "🆓 Free (OpenRouter)" if api_mode == "free" else "🔑 Your API Key"
+            st.write(f"**Mode:** {old_mode} → {new_mode}")
+        
+        if user_api_key != st.session_state.user_api_key:
+            if user_api_key:
+                st.write(f"**API Key:** Updated")
+            else:
+                st.write(f"**API Key:** Removed")
+        
+        if user_base_url != st.session_state.user_base_url:
+            st.write(f"**Base URL:** {st.session_state.user_base_url or 'Default'} → {user_base_url or 'Default'}")
+        
+        if api_mode == "user" and user_model_name != st.session_state.user_model_name:
+            old_model = st.session_state.user_model_name or "Default"
+            new_model = user_model_name or "Default"
+            st.write(f"**Model:** {old_model} → {new_model}")
+        
+        if api_mode == "free" and selected_model != st.session_state.selected_model:
+            old_model = st.session_state.selected_model or "Default"
+            if old_model != "Default":
+                old_display = old_model.split('/')[1].replace(':free', '')
+            else:
+                old_display = "Default"
+            new_display = selected_model.split('/')[1].replace(':free', '') if selected_model else "Default"
+            st.write(f"**Model:** {old_display} → {new_display}")
+        
+        # Confirmation buttons
+        col1, col2, col3 = st.columns([1, 1, 1])
+        
+        with col2:
+            if st.button("✅ Apply Changes", key="settings_apply_config", type="primary", use_container_width=True):
+                # Apply the changes
+                st.session_state.api_mode = api_mode
+                st.session_state.user_api_key = user_api_key
+                st.session_state.user_base_url = user_base_url
+                st.session_state.user_model_name = user_model_name if api_mode == "user" else ""
+                st.session_state.selected_model = selected_model if api_mode == "free" else None
+                st.session_state.api_config_changed = True
+                st.rerun()
+        
+        st.info("Click 'Apply Changes' to update the agent configuration.")
+    else:
+        # Show current configuration status
+        st.markdown("---")
+        st.subheader("✅ Current Configuration")
+        
+        if api_mode == "free":
+            st.success(f"**Mode:** 🆓 Free (OpenRouter)")
+            if st.session_state.selected_model:
+                model_display = st.session_state.selected_model.split('/')[1].replace(':free', '')
+                st.info(f"**Model:** {model_display}")
+            else:
+                st.info("**Model:** Default")
+        else:
+            st.success(f"**Mode:** 🔑 Your API Key")
+            if st.session_state.user_base_url:
+                if "deepseek" in st.session_state.user_base_url.lower():
+                    service_name = "DeepSeek"
+                elif "aliyuncs" in st.session_state.user_base_url.lower():
+                    service_name = "Qwen (Alibaba)"
+                else:
+                    service_name = "Custom API"
+                st.info(f"**Service:** {service_name}")
+            else:
+                st.info("**Service:** OpenAI")
+            
+            model_name = st.session_state.user_model_name or "Default"
+            st.info(f"**Model:** {model_name}")
+    
+    # Close button
+    st.markdown("---")
+    if st.button("Close Settings", type="secondary", use_container_width=True):
+        st.rerun()
+
 def build_graph_html(processed_records: List[Dict[str, List[Dict[str, Any]]]]) -> str:
     """
     Builds an interactive graph using PyVis based on the processed Neo4j query results.
@@ -277,11 +482,61 @@ def build_graph_html(processed_records: List[Dict[str, List[Dict[str, Any]]]]) -
     return net.generate_html()
 
 
+def process_streaming_response(agent_generator, message_placeholder, current_message, response_chunks):
+    """
+    Helper function to process streaming response with real-time updates.
+    Returns tuple of (updated_current_message, collected_dataframes).
+    """
+    collected_dataframes = []
+    
+    for chunk in agent_generator:
+        if type(chunk) == pd.DataFrame:
+            # Collect DataFrames but don't add to session state yet
+            collected_dataframes.append(chunk)
+            # Display the DataFrame immediately
+            st.dataframe(chunk)
+        else:
+            # Accumulate text chunks
+            current_message += str(chunk)
+            try:
+                # Use the sanitize_markdown function first
+                sanitized = sanitize_markdown(current_message)
+                message_placeholder.markdown(sanitized)
+            except Exception as e:
+                try:
+                    # First fallback: Try plain text with minimal formatting
+                    print(f"Markdown rendering error: {e}")
+                    # Strip out all potential problematic markdown syntax
+                    strict_content = re.sub(r'[^a-zA-Z0-9\s\.\,\;\:\!\?\-\_\*\#\(\)\[\]\>\~\`\=\+\/\\]', '', current_message)
+                    # Force plain text display
+                    message_placeholder.text(current_message)
+                except Exception as e2:
+                    # Last resort: Just display raw text
+                    print(f"Second markdown rendering error: {e2}")
+                    message_placeholder.code(current_message)
+            response_chunks.append(chunk)
+    
+    return current_message, collected_dataframes
+
+
 def main():
 
     md = MarkdownIt()
-    st.title("DES Agent")
-    st.subheader("Interactive Deep Eutectic Solvent Question Answering Chatbot")
+    
+    # Header with title and controls
+    col1, col2, col3 = st.columns([3, 1, 1])
+    
+    with col1:
+        st.title("DES Agent")
+        st.subheader("Interactive Deep Eutectic Solvent Question Answering Chatbot")
+    
+    with col2:
+        if st.button("📚 User Manual", use_container_width=True):
+            show_user_manual_popup()
+    
+    with col3:
+        if st.button("⚙️ Settings", use_container_width=True):
+            show_settings_dialog()
 
     # Add custom CSS for text wrapping
     st.markdown("""
@@ -320,6 +575,85 @@ def main():
         max-width: 100% !important;
         overflow-x: auto !important;
     }
+    
+    /* Sidebar styling - responsive to theme */
+    .css-1d391kg {
+        background-color: var(--background-color);
+    }
+    
+    /* Sidebar button styling - theme aware */
+    .stSidebar .stButton > button {
+        width: 100%;
+        margin-bottom: 5px;
+        text-align: left;
+        border-radius: 8px;
+        border: 1px solid var(--secondary-background-color);
+        background-color: var(--background-color);
+        color: var(--text-color);
+        transition: all 0.2s;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .stSidebar .stButton > button:hover {
+        background-color: var(--secondary-background-color);
+        border-color: var(--primary-color);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    
+    .stSidebar .stButton > button:focus {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 2px;
+    }
+    
+    /* Question button text wrapping */
+    .stSidebar .stButton > button div {
+        white-space: normal !important;
+        text-align: left !important;
+        font-size: 14px !important;
+        line-height: 1.3 !important;
+        padding: 5px !important;
+        color: inherit !important;
+    }
+    
+    /* Dark mode specific adjustments */
+    @media (prefers-color-scheme: dark) {
+        .stSidebar .stButton > button {
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        
+        .stSidebar .stButton > button:hover {
+            border-color: var(--primary-color);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        }
+    }
+    
+    /* Streamlit dark theme override */
+    [data-testid="stSidebar"] .stButton > button {
+        background-color: var(--background-color) !important;
+        color: var(--text-color) !important;
+        border: 1px solid var(--secondary-background-color) !important;
+    }
+    
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background-color: var(--secondary-background-color) !important;
+        border-color: var(--primary-color) !important;
+    }
+    
+    /* Additional dark mode compatibility */
+    .stSidebar [data-testid="stExpander"] {
+        background-color: var(--background-color);
+        border: 1px solid var(--secondary-background-color);
+        border-radius: 8px;
+        margin-bottom: 10px;
+    }
+    
+    .stSidebar [data-testid="stExpander"] summary {
+        color: var(--text-color) !important;
+        font-weight: 600;
+        padding: 10px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -339,6 +673,10 @@ def main():
         st.session_state.user_api_key = ""
     if "user_base_url" not in st.session_state:
         st.session_state.user_base_url = ""
+    if "user_model_name" not in st.session_state:
+        st.session_state.user_model_name = ""
+    if "selected_model" not in st.session_state:
+        st.session_state.selected_model = None
     if "api_config_changed" not in st.session_state:
         st.session_state.api_config_changed = False
 
@@ -355,8 +693,30 @@ def main():
                     with st.spinner("🔄 Updating agent configuration..."):
                         time.sleep(0.5)  # Brief pause for UX
                 
+                # Prepare model parameter based on mode
+                model_name = None
+                if st.session_state.api_mode == "free" and st.session_state.selected_model:
+                    # Strip whitespace and validate for free mode
+                    model_name = st.session_state.selected_model.strip()
+                    
+                    # Only validate if there's actually a model name provided
+                    if model_name:
+                        # Basic validation for free models
+                        if not model_name.endswith(":free"):
+                            raise ValueError(f"Model '{model_name}' is not a free model. Free models must end with ':free'")
+                        
+                        if "/" not in model_name:
+                            raise ValueError(f"Invalid model format '{model_name}'. Expected format: 'provider/model-name:free'")
+                    else:
+                        # If empty string after strip, treat as None
+                        model_name = None
+                elif st.session_state.api_mode == "user" and st.session_state.user_model_name:
+                    # Use user-specified model name for user mode
+                    model_name = st.session_state.user_model_name.strip() or None
+                
                 # Initialize agent with current configuration
                 st.session_state.agent = DesAgent(
+                    llm_model_name=model_name,
                     session_id=st.session_state.session_id,
                     api_mode=st.session_state.api_mode,
                     user_api_key=st.session_state.user_api_key if st.session_state.api_mode == "user" else None,
@@ -369,7 +729,21 @@ def main():
                     st.session_state.api_config_changed = False
                     
         except Exception as e:
-            st.error(f"❌ Failed to initialize agent: {str(e)}")
+            error_msg = str(e)
+            
+            # Provide helpful error messages for common issues
+            if "Invalid free model" in error_msg:
+                st.error(f"❌ {error_msg}")
+                st.info("💡 Please visit the OpenRouter models page and select a model that ends with ':free'")
+            elif "is not a free model" in error_msg:
+                st.error(f"❌ {error_msg}")
+                st.info("💡 Make sure the model name ends with ':free'. Paid models are not supported in free mode.")
+            elif "Invalid model format" in error_msg:
+                st.error(f"❌ {error_msg}")
+                st.info("💡 Example of correct format: 'deepseek/deepseek-chat-v3-0324:free'")
+            else:
+                st.error(f"❌ Failed to initialize agent: {error_msg}")
+            
             if "agent" in st.session_state:
                 del st.session_state.agent
             st.session_state.api_config_changed = False
@@ -381,146 +755,33 @@ def main():
     if "graph_visibility" not in st.session_state:
         st.session_state.graph_visibility = {}
 
-
-
-    # ---- SIDEBAR SECTION ----
-    # Move manual controls to sidebar
-    st.sidebar.title("Options")
+    # ---- SIDEBAR SECTION - Only Predefined Questions ----
+    st.sidebar.title("💡 Quick Questions")
+    st.sidebar.markdown("Choose a question to get started:")
     
-    # API Configuration Section
-    st.sidebar.subheader("API Configuration")
-    
-    # API Mode Selection
-    api_mode = st.sidebar.radio(
-        "Choose API Mode:",
-        options=["free", "user"],
-        format_func=lambda x: "Free (OpenRouter)" if x == "free" else "Your API Key",
-        index=0 if st.session_state.api_mode == "free" else 1,
-        key="api_mode_radio"
-    )
-    
-    # User API configuration
-    user_api_key = ""
-    user_base_url = ""
-    
-    if api_mode == "user":
-        st.sidebar.markdown("**Enter your API credentials:**")
-        user_api_key = st.sidebar.text_input(
-            "API Key:",
-            type="password",
-            value=st.session_state.user_api_key,
-            help="Enter your OpenAI API key or compatible API key"
-        )
-        user_base_url = st.sidebar.text_input(
-            "Base URL (optional):",
-            value=st.session_state.user_base_url,
-            help="Leave empty for OpenAI, or enter custom endpoint"
-        )
-        
-        if not user_api_key:
-            st.sidebar.warning("⚠️ Please enter your API key to use this mode")
-    else:
-        st.sidebar.info("ℹ️ Using free OpenRouter API with limited model")
-        # Check if OpenRouter API key is configured
-        try:
-            openrouter_key = st.secrets.get('OPENROUTER_FREE_API_KEY', None)
-            if not openrouter_key or openrouter_key == "your-openrouter-free-api-key-here":
-                st.sidebar.warning("⚠️ OpenRouter API key not configured in secrets.toml")
-        except:
-            pass
-    
-    # Check if configuration changed
-    config_changed = (api_mode != st.session_state.api_mode or 
-                     user_api_key != st.session_state.user_api_key or 
-                     user_base_url != st.session_state.user_base_url)
-    
-    if config_changed:
-        # Store pending changes without applying them yet
-        if "pending_api_mode" not in st.session_state:
-            st.session_state.pending_api_mode = api_mode
-            st.session_state.pending_user_api_key = user_api_key
-            st.session_state.pending_user_base_url = user_base_url
-        else:
-            st.session_state.pending_api_mode = api_mode
-            st.session_state.pending_user_api_key = user_api_key
-            st.session_state.pending_user_base_url = user_base_url
-        
-        # Show confirmation section
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("⚠️ Configuration Changed")
-        
-        # Show what's changing
-        if api_mode != st.session_state.api_mode:
-            old_mode = "Free (OpenRouter)" if st.session_state.api_mode == "free" else "Your API Key"
-            new_mode = "Free (OpenRouter)" if api_mode == "free" else "Your API Key"
-            st.sidebar.write(f"**Mode:** {old_mode} → {new_mode}")
-        
-        if user_api_key != st.session_state.user_api_key:
-            if user_api_key:
-                st.sidebar.write(f"**API Key:** Updated")
-            else:
-                st.sidebar.write(f"**API Key:** Removed")
-        
-        if user_base_url != st.session_state.user_base_url:
-            st.sidebar.write(f"**Base URL:** {st.session_state.user_base_url or 'Default'} → {user_base_url or 'Default'}")
-        
-        # Confirmation buttons
-        col1, col2 = st.sidebar.columns(2)
-        
-        with col1:
-            if st.button("✅ Apply Changes", key="apply_config", type="primary"):
-                # Apply the changes
-                st.session_state.api_mode = st.session_state.pending_api_mode
-                st.session_state.user_api_key = st.session_state.pending_user_api_key
-                st.session_state.user_base_url = st.session_state.pending_user_base_url
-                st.session_state.api_config_changed = True
-                
-                # Clear pending changes
-                del st.session_state.pending_api_mode
-                del st.session_state.pending_user_api_key
-                del st.session_state.pending_user_base_url
-                
-                st.rerun()
-        
-        with col2:
-            if st.button("❌ Cancel", key="cancel_config"):
-                # Clear pending changes without applying
-                del st.session_state.pending_api_mode
-                del st.session_state.pending_user_api_key
-                del st.session_state.pending_user_base_url
-                st.rerun()
-        
-        st.sidebar.info("Click 'Apply Changes' to update the agent configuration.")
-    else:
-        # Clear any pending changes if configuration matches current
-        if "pending_api_mode" in st.session_state:
-            del st.session_state.pending_api_mode
-            del st.session_state.pending_user_api_key
-            del st.session_state.pending_user_base_url
-    
-    # Add manual controls to sidebar
-    st.sidebar.subheader("User Manual")
-    if st.sidebar.button("📚 Show Manual", use_container_width=True):
-        show_user_manual_popup()
-    
-    # Add predefined questions to sidebar
-    st.sidebar.subheader("Predefined Questions")
-    predefined_questions = [
-        "What is a deep eutectic solvent?",
-        "How are deep eutectic solvents formed?",
-        "What are the applications of deep eutectic solvents?",
-        "Can you give an example of a deep eutectic solvent?",
-        "What are the properties of deep eutectic solvents?",
-        "Which substances can form a DES together with urea?",
-        "Which substances can form DES with Choline Chloride?",
-        "What is the DES with the lowest melting point in the database and what are its components and ratios?",
-        "Find formulations with melting point in the range [300, 400] K",
-        "Find formulations containing Glycerin with melting point in the range [290, 350] K",
-#        "Find formulations containing Sodium Chloride and Calcium Chloride with melting point in range [400, 600] K",
-        # "What is the formulation with the lowest melting point in the database?",
-        "Which articles have researched Glycerin?",
-        "In the binary system of Sodium Chloride and Calcium Chloride, which formulation has the lowest melting point?"
-    ]
+    # Predefined questions organized by category
+    question_categories = {
+        "🧪 Basic Concepts": [
+            "What is a deep eutectic solvent?",
+            "How are deep eutectic solvents formed?",
+            "What are the applications of deep eutectic solvents?",
+            "What are the properties of deep eutectic solvents?"
+        ],
+        "🔍 Examples & Components": [
+            "Can you give an example of a deep eutectic solvent?",
+            "Which substances can form a DES together with urea?",
+            "Which substances can form DES with Choline Chloride?"
+        ],
+        "📊 Database Queries": [
+            "What is the DES with the lowest melting point in the database and what are its components and ratios?",
+            "Find formulations with melting point in the range [300, 400] K",
+            "Find formulations containing Glycerin with melting point in the range [290, 350] K",
+            "In the binary system of Sodium Chloride and Calcium Chloride, which formulation has the lowest melting point?"
+        ],
+        "📚 Research": [
+            "Which articles have researched Glycerin?"
+        ]
+    }
     
     # Initialize the predefined question value in session state if not exists
     if "predefined_question" not in st.session_state:
@@ -529,12 +790,14 @@ def main():
     if "should_process_predefined" not in st.session_state:
         st.session_state.should_process_predefined = False
     
-    # Predefined question buttons in sidebar
-    for question in predefined_questions:
-        if st.sidebar.button(question, key=f"predef_{question}"):
-            st.session_state.predefined_question = question
-            st.session_state.should_process_predefined = True
-            st.rerun()
+    # Display questions by category
+    for category, questions in question_categories.items():
+        with st.sidebar.expander(category, expanded=True):
+            for question in questions:
+                if st.button(question, key=f"predef_{question}"):
+                    st.session_state.predefined_question = question
+                    st.session_state.should_process_predefined = True
+                    st.rerun()
         
     # ----- MAIN SECTION -----
     end_time = time.time()
@@ -583,16 +846,37 @@ def main():
     # Display current configuration status
     if "agent" in st.session_state:
         if st.session_state.api_mode == "free":
-            st.info(f"🤖 Using OpenRouter Free Tier: {st.session_state.agent.llm_model_name}")
+            model_display = st.session_state.agent.llm_model_name
+            if model_display:
+                # Extract just the model name part for cleaner display
+                clean_name = model_display.split('/')[-1].replace(':free', '') if '/' in model_display else model_display
+                st.info(f"🤖 Using OpenRouter Free Tier: **{clean_name}** (`{model_display}`)")
+            else:
+                st.info("🤖 Using OpenRouter Free Tier: **Default Model**")
         else:
-            st.info(f"🤖 Using Your API: {st.session_state.agent.llm_model_name}")
+            # User mode - show more detailed info
+            model_name = st.session_state.agent.llm_model_name or "Default"
+            base_url = st.session_state.user_base_url
+            if base_url:
+                # Extract service name from base_url for cleaner display
+                if "deepseek" in base_url.lower():
+                    service_name = "DeepSeek"
+                elif "aliyuncs" in base_url.lower() or "dashscope" in base_url.lower():
+                    service_name = "Qwen (Alibaba)"
+                elif "together" in base_url.lower():
+                    service_name = "Together AI"
+                else:
+                    service_name = "Custom API"
+                st.info(f"🤖 Using {service_name}: **{model_name}**")
+            else:
+                st.info(f"🤖 Using OpenAI: **{model_name}**")
 
     # Check if agent is available before processing
     if "agent" not in st.session_state:
         if st.session_state.api_mode == "user" and not st.session_state.user_api_key:
-            st.warning("⚠️ Please enter your API key in the sidebar to start chatting.")
+            st.warning("⚠️ Please configure your API key in the settings to start chatting.")
         else:
-            st.error("❌ Agent initialization failed. Please check your configuration.")
+            st.error("❌ Agent initialization failed. Please check your configuration in settings.")
         return
 
     # Process predefined question if selected
@@ -621,37 +905,37 @@ def main():
             message_placeholder = st.empty()
             
             # Show loading animation while waiting for first response
+            agent_generator = st.session_state.agent.task_execution(input_to_process)
+            
+            # Get the first chunk with spinner
             with st.spinner("🤖 Thinking and generating response..."):
-                agent_generator = st.session_state.agent.task_execution(input_to_process)
-                # Get the first chunk to end the spinner
                 try:
                     first_chunk = next(agent_generator)
-                    chunks_to_process = [first_chunk]
-                    # Collect remaining chunks
-                    for chunk in agent_generator:
-                        chunks_to_process.append(chunk)
                 except StopIteration:
-                    chunks_to_process = []
+                    first_chunk = None
+                except Exception as e:
+                    error_msg = str(e)
+                    if "model" in error_msg.lower() and ("not found" in error_msg.lower() or "invalid" in error_msg.lower()):
+                        st.error(f"❌ Model Error: {error_msg}")
+                        st.info("💡 Please check your model name and try again. Visit the OpenRouter models page to find valid free models.")
+                        return
+                    else:
+                        st.error(f"❌ Error: {error_msg}")
+                        return
             
-            # Now process all chunks without spinner
-            for chunk in chunks_to_process:
-                if type(chunk) == pd.DataFrame:
-                    # If we have accumulated any text, save it as a message
-                    if current_message:
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": current_message
-                        })
-                    # Save and display the DataFrame
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": "[DataFrame Results]",
-                        "dataframe": chunk
-                    })
-                    st.dataframe(chunk)
+            # Collect all chunks and DataFrames
+            all_dataframes = []
+            
+            # Process first chunk immediately (spinner ends here)
+            if first_chunk is not None:
+                if type(first_chunk) == pd.DataFrame:
+                    # Collect DataFrame but don't add to session state yet
+                    all_dataframes.append(first_chunk)
+                    # Display the DataFrame immediately
+                    st.dataframe(first_chunk)
                 else:
                     # Accumulate text chunks
-                    current_message += str(chunk)
+                    current_message += str(first_chunk)
                     try:
                         # Use the sanitize_markdown function first
                         sanitized = sanitize_markdown(current_message)
@@ -668,33 +952,58 @@ def main():
                             # Last resort: Just display raw text
                             print(f"Second markdown rendering error: {e2}")
                             message_placeholder.code(current_message)
-                    response_chunks.append(chunk)
+                    response_chunks.append(first_chunk)
+            
+            # Now continue streaming remaining chunks in real-time
+            current_message, streaming_dataframes = process_streaming_response(agent_generator, message_placeholder, current_message, response_chunks)
+            all_dataframes.extend(streaming_dataframes)
 
-            # Save any remaining text as a message AFTER the loop completes
+            # Save all messages to session state AFTER streaming is complete
+            # First save any text content
             if current_message:
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": current_message
                 })
+            
+            # Then save any DataFrames as separate messages
+            for df in all_dataframes:
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "content": "[DataFrame Results]",
+                    "dataframe": df
+                })
 
         # Handle graph visualization if present
         processed_result = st.session_state.agent.get_latest_processed_result()
-        if processed_result:
-            st.session_state.messages[-1]["graph"] = processed_result
+        if processed_result and st.session_state.messages:
+            # Find the last assistant message with text content to add graph to
+            for i in range(len(st.session_state.messages) - 1, -1, -1):
+                if (st.session_state.messages[i]["role"] == "assistant" and 
+                    "dataframe" not in st.session_state.messages[i]):
+                    st.session_state.messages[i]["graph"] = processed_result
+                    break
 
         # Render "Show Graph / Hide Graph" if needed, for the newly generated message
-        if st.session_state.messages[-1]["role"] == "assistant" and "graph" in st.session_state.messages[-1]:
-            idx = len(st.session_state.messages) - 1
+        # Find the message with graph data
+        graph_message_idx = None
+        for i in range(len(st.session_state.messages) - 1, -1, -1):
+            if (st.session_state.messages[i]["role"] == "assistant" and 
+                "graph" in st.session_state.messages[i]):
+                graph_message_idx = i
+                break
+        
+        if graph_message_idx is not None:
             col1, col2 = st.columns(2)
 
             with col1:
-                if st.button("Show Graph", key=f"show_graph_{idx}"):
-                    st.session_state.graph_visibility[idx] = True
+                if st.button("Show Graph", key=f"show_graph_{graph_message_idx}"):
+                    st.session_state.graph_visibility[graph_message_idx] = True
             with col2:
-                if st.button("Hide Graph", key=f"hide_graph_{idx}"):
-                    st.session_state.graph_visibility[idx] = False
+                if st.button("Hide Graph", key=f"hide_graph_{graph_message_idx}"):
+                    st.session_state.graph_visibility[graph_message_idx] = False
 
-            if st.session_state.graph_visibility.get(idx, False):
+            if st.session_state.graph_visibility.get(graph_message_idx, False):
                 html_content = build_graph_html(processed_result)
                 components.html(html_content, height=600, width=800, scrolling=True)
             else:
@@ -726,40 +1035,39 @@ def main():
             message_placeholder = st.empty()
             
             # Show loading animation while waiting for first response
+            agent_generator = st.session_state.agent.task_execution(input_to_process)
+            
+            # Get the first chunk with spinner
             with st.spinner("🤖 Thinking and generating response..."):
-                agent_generator = st.session_state.agent.task_execution(input_to_process)
-                # Get the first chunk to end the spinner
                 try:
                     first_chunk = next(agent_generator)
-                    chunks_to_process = [first_chunk]
-                    # Collect remaining chunks
-                    for chunk in agent_generator:
-                        chunks_to_process.append(chunk)
                 except StopIteration:
-                    chunks_to_process = []
+                    first_chunk = None
+                except Exception as e:
+                    error_msg = str(e)
+                    if "model" in error_msg.lower() and ("not found" in error_msg.lower() or "invalid" in error_msg.lower()):
+                        st.error(f"❌ Model Error: {error_msg}")
+                        st.info("💡 Please check your model name and try again. Visit the OpenRouter models page to find valid free models.")
+                        return
+                    else:
+                        st.error(f"❌ Error: {error_msg}")
+                        return
             
-            # Now process all chunks without spinner
-            for chunk in chunks_to_process:
-                if type(chunk) == pd.DataFrame:
-                    # If we have accumulated any text, save it as a message
-                    if current_message:
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": current_message
-                        })
-                        current_message = ""
-                    # Save and display the DataFrame
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": "[DataFrame Results]",
-                        "dataframe": chunk
-                    })
-                    st.dataframe(chunk)
+            # Collect all chunks and DataFrames
+            all_dataframes = []
+            
+            # Process first chunk immediately (spinner ends here)
+            if first_chunk is not None:
+                if type(first_chunk) == pd.DataFrame:
+                    # Collect DataFrame but don't add to session state yet
+                    all_dataframes.append(first_chunk)
+                    # Display the DataFrame immediately
+                    st.dataframe(first_chunk)
                 else:
                     # Accumulate text chunks
-                    current_message += str(chunk)
+                    current_message += str(first_chunk)
                     try:
-                        # Use the sanitize_markdown function f  irst
+                        # Use the sanitize_markdown function first
                         sanitized = sanitize_markdown(current_message)
                         message_placeholder.markdown(sanitized)
                     except Exception as e:
@@ -774,40 +1082,65 @@ def main():
                             # Last resort: Just display raw text
                             print(f"Second markdown rendering error: {e2}")
                             message_placeholder.code(current_message)
-                    response_chunks.append(chunk)
+                    response_chunks.append(first_chunk)
+            
+            # Now continue streaming remaining chunks in real-time
+            current_message, streaming_dataframes = process_streaming_response(agent_generator, message_placeholder, current_message, response_chunks)
+            all_dataframes.extend(streaming_dataframes)
 
-            # Save any remaining text as a message AFTER the loop completes
+            # Save all messages to session state AFTER streaming is complete
+            # First save any text content
             if current_message:
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": current_message
+                })
+            
+            # Then save any DataFrames as separate messages
+            for df in all_dataframes:
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "content": "[DataFrame Results]",
+                    "dataframe": df
                 })
 
         # Handle graph visualization if present
         processed_result = st.session_state.agent.get_latest_processed_result()
         
         # Save any final response chunks to file
-        final_response = "".join(response_chunks)
+        final_response = "".join(str(chunk) for chunk in response_chunks)
         with open(user_log_path, "a", encoding="utf-8") as f:
             f.write(f"[ASSISTANT] \n{final_response}\n\n")
         
-        # Update the last message with graph if available
-        if processed_result and st.session_state.messages and st.session_state.messages[-1]["role"] == "assistant":
-            st.session_state.messages[-1]["graph"] = processed_result
+        # Update the last text message with graph if available
+        if processed_result and st.session_state.messages:
+            # Find the last assistant message with text content to add graph to
+            for i in range(len(st.session_state.messages) - 1, -1, -1):
+                if (st.session_state.messages[i]["role"] == "assistant" and 
+                    "dataframe" not in st.session_state.messages[i]):
+                    st.session_state.messages[i]["graph"] = processed_result
+                    break
 
         # Render "Show Graph / Hide Graph" if needed, for the newly generated message
-        if st.session_state.messages[-1]["role"] == "assistant" and "graph" in st.session_state.messages[-1]:
-            idx = len(st.session_state.messages) - 1
+        # Find the message with graph data
+        graph_message_idx = None
+        for i in range(len(st.session_state.messages) - 1, -1, -1):
+            if (st.session_state.messages[i]["role"] == "assistant" and 
+                "graph" in st.session_state.messages[i]):
+                graph_message_idx = i
+                break
+        
+        if graph_message_idx is not None:
             col1, col2 = st.columns(2)
 
             with col1:
-                if st.button("Show Graph", key=f"show_graph_{idx}"):
-                    st.session_state.graph_visibility[idx] = True
+                if st.button("Show Graph", key=f"show_graph_{graph_message_idx}"):
+                    st.session_state.graph_visibility[graph_message_idx] = True
             with col2:
-                if st.button("Hide Graph", key=f"hide_graph_{idx}"):
-                    st.session_state.graph_visibility[idx] = False
+                if st.button("Hide Graph", key=f"hide_graph_{graph_message_idx}"):
+                    st.session_state.graph_visibility[graph_message_idx] = False
 
-            if st.session_state.graph_visibility.get(idx, False):
+            if st.session_state.graph_visibility.get(graph_message_idx, False):
                 html_content = build_graph_html(processed_result)
                 components.html(html_content, height=600, width=800, scrolling=True)
             else:

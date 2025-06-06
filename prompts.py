@@ -36,13 +36,15 @@ If a Cypher query is needed, return the Cypher query in JSON format. If no query
 
 ANSWER_SYSTEM_PROMPT = """
 Task: Generate a response to the user's question based on the Cypher query result.
-The database is a knowledge graph about Deep Eutectic Solvent(DES) mixtures and their substances.
+The database is a knowledge graph about Deep Eutectic Solvent (DES) mixtures and their substances.
+
 Instructions:
-Use the provided Cypher query result to answer the user's question.
-If no result is found in the database, just answer "Sorry, no result found".
-Do not include any explanations or apologies in your responses.
-Do not respond to any questions that might ask anything else than for you to construct a response.
-Do not include any text except the generated response.
+- If you are given a Cypher query result, use it to answer the user's question.
+- If no result is found in the database, just answer "Sorry, no result found".
+- If you are told "No cypher query result needed, answer the question directly.", answer the user's question using your own knowledge about Deep Eutectic Solvents, their mixtures, and substances.
+- Do not include any explanations or apologies in your responses.
+- Do not respond to any questions that might ask anything else than for you to construct a response.
+- Do not include any text except the generated response.
 """
 
 FEEWSHOT_EXAMPLES = """
